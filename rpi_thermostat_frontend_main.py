@@ -291,7 +291,7 @@ class ChannelFrame(ctk.CTkFrame):
             print(f"Errore manual CH{self.ch_num}: {e}")
 
 # --- Main App ---
-class ChillerApp(ctk.CTk):
+class ThermostatApp(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title("Termostato")
@@ -299,6 +299,16 @@ class ChillerApp(ctk.CTk):
         self.iconbitmap("rpi_thermostat.ico")
         self.update_msg = ctk.CTkLabel(self, text="", font=GLOBAL_FONT, text_color="green")
         self.update_msg.pack(pady=5)
+
+        # Stato di connessione alla RPI
+        self.connected = False
+        self.connection_label = ctk.CTkLabel(
+            self,
+            text="DISCONNECTED",
+            font=(APP_FONT, 14, "bold"),
+            text_color="red"
+        )
+        self.connection_label.pack(pady=5)
 
         # Contenitore canali
         self.channels_frame = ctk.CTkFrame(self, fg_color="transparent")
@@ -327,31 +337,57 @@ class ChillerApp(ctk.CTk):
         # Start loop aggiornamento stato
         threading.Thread(target=self.update_loop, daemon=True).start()
 
+    def set_connection_state(self, state: bool):
+        if state == self.connected:
+            return  # evita aggiornamenti inutili
+
+        self.connected = state
+
+        if state:
+            self.connection_label.configure(text="CONNECTED", text_color="green")
+        else:
+            self.connection_label.configure(text="DISCONNECTED", text_color="red")
+
+            # opzionale: reset valori UI
+            for ch in [self.ch1, self.ch2]:
+                ch.temp_label.configure(text="Temperatura: -- °C")
+                ch.sp_curr_label.configure(text="Setpoint attuale: --")
+                ch.hyst_curr_label.configure(text="Isteresi attuale: --")
+                ch.mode_curr_label.configure(text="Modalità: --")
+                ch.relay_label.configure(text="Relay: --")
+
     def update_loop(self):
         while True:
             try:
                 r = requests.get(API_STATUS, timeout=2)
+                r.raise_for_status()
                 data = r.json()
-                # Aggiorna CH1
+
+                self.set_connection_state(True)
+
+                # CH1
                 ch1_data = data.get("CH1", {})
-                self.ch1.temp_label.configure(text=f"Temperatura: {ch1_data.get('temperature','--')} °C")
-                self.ch1.sp_curr_label.configure(text=f"Setpoint attuale: {ch1_data.get('setpoint','--')}")
-                self.ch1.hyst_curr_label.configure(text=f"Isteresi attuale: {ch1_data.get('hysteresis','--')}")
-                mode_label = "HEATING" if ch1_data.get("mode")==1 else "COOLING"
+                self.ch1.temp_label.configure(text=f"Temperatura: {ch1_data.get('temperature', '--')} °C")
+                self.ch1.sp_curr_label.configure(text=f"Setpoint attuale: {ch1_data.get('setpoint', '--')}")
+                self.ch1.hyst_curr_label.configure(text=f"Isteresi attuale: {ch1_data.get('hysteresis', '--')}")
+                mode_label = "HEATING" if ch1_data.get("mode") == 1 else "COOLING"
                 self.ch1.mode_curr_label.configure(text=f"Modalità: {mode_label}")
                 relay_state = "ON" if ch1_data.get("relay", False) else "OFF"
                 self.ch1.relay_label.configure(text=f"Relay: {relay_state}")
-                # Aggiorna CH2
+
+                # CH2
                 ch2_data = data.get("CH2", {})
-                self.ch2.temp_label.configure(text=f"Temperatura: {ch2_data.get('temperature','--')} °C")
-                self.ch2.sp_curr_label.configure(text=f"Setpoint attuale: {ch2_data.get('setpoint','--')}")
-                self.ch2.hyst_curr_label.configure(text=f"Isteresi attuale: {ch2_data.get('hysteresis','--')}")
-                mode_label2 = "HEATING" if ch2_data.get("mode")==1 else "COOLING"
+                self.ch2.temp_label.configure(text=f"Temperatura: {ch2_data.get('temperature', '--')} °C")
+                self.ch2.sp_curr_label.configure(text=f"Setpoint attuale: {ch2_data.get('setpoint', '--')}")
+                self.ch2.hyst_curr_label.configure(text=f"Isteresi attuale: {ch2_data.get('hysteresis', '--')}")
+                mode_label2 = "HEATING" if ch2_data.get("mode") == 1 else "COOLING"
                 self.ch2.mode_curr_label.configure(text=f"Modalità: {mode_label2}")
                 relay_state2 = "ON" if ch2_data.get("relay", False) else "OFF"
                 self.ch2.relay_label.configure(text=f"Relay: {relay_state2}")
-            except:
-                pass
+
+            except Exception:
+                self.set_connection_state(False)
+
             time.sleep(1)
 
     def manual(self, state: bool):
@@ -369,7 +405,7 @@ class ChillerApp(ctk.CTk):
             pass
 
 def main():
-    app = ChillerApp()
+    app = ThermostatApp()
     app.mainloop()
 
 if __name__ == "__main__":
