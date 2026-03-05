@@ -113,88 +113,182 @@ class ChannelFrame(ctk.CTkFrame):
         label_font = (APP_FONT, 16)
 
         # --- Header (barra titolo) ---
-        # Se non passi title, lo genera come CH1 / CH2
         header_text = title if title is not None else f"CH{ch_num}"
         self.header = ctk.CTkFrame(self, fg_color=header_fg, corner_radius=10)
         self.header.pack(fill="x", padx=0, pady=(0, 6))
-        self.header_label = ctk.CTkLabel(self.header, text=header_text, font=(APP_FONT, 18, "bold"),
-                                         text_color=header_text_color)
+
+        self.header_label = ctk.CTkLabel(
+            self.header,
+            text=header_text,
+            font=(APP_FONT, 18, "bold"),
+            text_color=header_text_color
+        )
         self.header_label.pack(side="left", padx=12, pady=6)
 
-        # --- Contenitore contenuti (così il bordo resta pulito) ---
+        # --- Corpo ---
         self.body = ctk.CTkFrame(self, fg_color="transparent")
         self.body.pack(fill="both", expand=True, padx=8, pady=(0, 8))
 
-        # --- Colonne dentro il body ---
+        # Colonne
         self.left_col = ctk.CTkFrame(self.body, fg_color="transparent")
         self.left_col.pack(side="left", fill="both", expand=True, padx=10, pady=10)
+
         self.right_col = ctk.CTkFrame(self.body, fg_color="transparent")
         self.right_col.pack(side="right", fill="both", expand=True, padx=10, pady=10)
 
-        # --- Colonna sinistra: setpoint, isteresi, modalità ---
+        # --- Colonna sinistra: parametri ---
         self.sp_label = ctk.CTkLabel(self.left_col, text=f"Setpoint CH{ch_num} (°C):", font=GLOBAL_FONT)
         self.sp_label.grid(row=0, column=0, sticky="w", padx=5, pady=5)
+
         self.sp_entry = ctk.CTkEntry(self.left_col, font=GLOBAL_FONT)
         self.sp_entry.grid(row=0, column=1, padx=5, pady=5)
-        ctk.CTkButton(self.left_col, text="Conferma", command=lambda: self.update_settings("setpoint"), font=GLOBAL_FONT).grid(row=0, column=2, padx=5, pady=5)
+
+        ctk.CTkButton(
+            self.left_col,
+            text="Conferma",
+            command=lambda: self.update_settings("setpoint"),
+            font=GLOBAL_FONT
+        ).grid(row=0, column=2, padx=5, pady=5)
 
         self.hyst_label = ctk.CTkLabel(self.left_col, text="Isteresi (°C):", font=GLOBAL_FONT)
         self.hyst_label.grid(row=1, column=0, sticky="w", padx=5, pady=5)
+
         self.hyst_entry = ctk.CTkEntry(self.left_col, font=GLOBAL_FONT)
         self.hyst_entry.grid(row=1, column=1, padx=5, pady=5)
-        ctk.CTkButton(self.left_col, text="Conferma", command=lambda: self.update_settings("hysteresis"), font=GLOBAL_FONT).grid(row=1, column=2, padx=5, pady=5)
+
+        ctk.CTkButton(
+            self.left_col,
+            text="Conferma",
+            command=lambda: self.update_settings("hysteresis"),
+            font=GLOBAL_FONT
+        ).grid(row=1, column=2, padx=5, pady=5)
 
         self.mode_var = ctk.StringVar(value="1 - HEATING")
         self.mode_label = ctk.CTkLabel(self.left_col, text="Modalità:", font=GLOBAL_FONT)
         self.mode_label.grid(row=2, column=0, sticky="w", padx=5, pady=5)
-        self.mode_menu = ctk.CTkOptionMenu(self.left_col, values=["1 - HEATING", "2 - COOLING"], variable=self.mode_var, font=GLOBAL_FONT)
+
+        self.mode_menu = ctk.CTkOptionMenu(
+            self.left_col,
+            values=["1 - HEATING", "2 - COOLING"],
+            variable=self.mode_var,
+            font=GLOBAL_FONT
+        )
         self.mode_menu.grid(row=2, column=1, padx=5, pady=5)
-        ctk.CTkButton(self.left_col, text="Conferma", command=lambda: self.update_settings("mode"), font=GLOBAL_FONT).grid(row=2, column=2, padx=5, pady=5)
 
-        # Checkbox forzatura manuale per canale
+        ctk.CTkButton(
+            self.left_col,
+            text="Conferma",
+            command=lambda: self.update_settings("mode"),
+            font=GLOBAL_FONT
+        ).grid(row=2, column=2, padx=5, pady=5)
+
+        # --- Checkbox forzatura manuale ---
         self.manual_enable_var = ctk.IntVar(value=0)
-        self.manual_cb = ctk.CTkCheckBox(self.left_col, text="Attiva forzatura", variable=self.manual_enable_var,
-                                         command=self.manual_enable_toggle, font=GLOBAL_FONT)
-        self.manual_cb.grid(row=3, column=0, columnspan=3, sticky="w", padx=5, pady=5)
+        self.manual_cb = ctk.CTkCheckBox(
+            self.left_col,
+            text="Attiva forzatura",
+            variable=self.manual_enable_var,
+            command=self.manual_enable_toggle,
+            font=GLOBAL_FONT
+        )
+        self.manual_cb.grid(row=3, column=0, columnspan=3, sticky="w", padx=5, pady=(10, 5))
 
-        # --- Colonna destra: stato corrente ---
+        # --- Pulsanti manuali ON/OFF ---
+        btns_frame = ctk.CTkFrame(self.left_col, fg_color="transparent")
+        btns_frame.grid(row=4, column=0, columnspan=3, sticky="w", padx=5, pady=(5, 5))
+
+        self.on_btn = ctk.CTkButton(
+            btns_frame,
+            text="ON",
+            width=80,
+            command=lambda: self.manual_set(True),
+            font=GLOBAL_FONT
+        )
+        self.on_btn.pack(side="left", padx=(0, 8))
+
+        self.off_btn = ctk.CTkButton(
+            btns_frame,
+            text="OFF",
+            width=80,
+            command=lambda: self.manual_set(False),
+            font=GLOBAL_FONT
+        )
+        self.off_btn.pack(side="left")
+
+        # Disabilitati finché non si attiva la forzatura
+        self.update_manual_buttons_state()
+
+        # --- Colonna destra: stato ---
         self.temp_label = ctk.CTkLabel(self.right_col, text="Temperatura: -- °C", font=label_font)
         self.temp_label.pack(pady=5)
+
         self.sp_curr_label = ctk.CTkLabel(self.right_col, text="Setpoint attuale: --", font=label_font)
         self.sp_curr_label.pack(pady=5)
+
         self.hyst_curr_label = ctk.CTkLabel(self.right_col, text="Isteresi attuale: --", font=label_font)
         self.hyst_curr_label.pack(pady=5)
+
         self.mode_curr_label = ctk.CTkLabel(self.right_col, text="Modalità: --", font=label_font)
         self.mode_curr_label.pack(pady=5)
+
         self.relay_label = ctk.CTkLabel(self.right_col, text="Relay: --", font=label_font)
         self.relay_label.pack(pady=5)
 
-        # Bind tap per keypad
+        # Keypad bind
         self.sp_entry.bind("<Button-1>", lambda e: open_numeric_pad(self, self.sp_entry))
         self.hyst_entry.bind("<Button-1>", lambda e: open_numeric_pad(self, self.hyst_entry))
 
+    # --- SETTINGS API ---
     def update_settings(self, param=None):
         try:
             payload = {}
             prefix = f"CH{self.ch_num}_"
+
             if param == "setpoint" or param is None:
                 payload[prefix + "setpoint"] = float(self.sp_entry.get())
+
             if param == "hysteresis" or param is None:
                 payload[prefix + "hysteresis"] = float(self.hyst_entry.get())
+
             if param == "mode" or param is None:
                 mode_num = float(self.mode_var.get().split(" ")[0])
                 payload[prefix + "mode"] = mode_num
+
             if payload:
                 requests.post(API_SETTINGS, json=payload, timeout=2)
         except Exception as e:
             print(f"Errore update CH{self.ch_num}: {e}")
 
+    # --- TOGGLE FORZATURA ---
     def manual_enable_toggle(self):
         try:
             val = 1.0 if self.manual_enable_var.get() else 0.0
-            requests.post(API_SETTINGS, json={f"CH{self.ch_num}_manual_enable": val}, timeout=2)
+            requests.post(
+                API_SETTINGS,
+                json={f"CH{self.ch_num}_manual_enable": val},
+                timeout=2
+            )
         except Exception as e:
             print(f"Errore manual enable CH{self.ch_num}: {e}")
+
+        self.update_manual_buttons_state()
+
+    def update_manual_buttons_state(self):
+        enabled = bool(self.manual_enable_var.get())
+        state = "normal" if enabled else "disabled"
+        self.on_btn.configure(state=state)
+        self.off_btn.configure(state=state)
+
+    # --- COMANDO MANUALE ON/OFF ---
+    def manual_set(self, state: bool):
+        try:
+            requests.post(
+                API_MANUAL,
+                json={f"CH{self.ch_num}_on": state},
+                timeout=2
+            )
+        except Exception as e:
+            print(f"Errore manual CH{self.ch_num}: {e}")
 
 # --- Main App ---
 class ChillerApp(ctk.CTk):
@@ -216,6 +310,7 @@ class ChillerApp(ctk.CTk):
         self.ch2 = ChannelFrame(self.channels_frame, 2, title="CHANNEL 2")
         self.ch2.pack(side="left", fill="both", expand=True, padx=10, pady=10)
 
+        '''
         # Pulsanti manuali ON/OFF centrali
         manual_frame = ctk.CTkFrame(self, fg_color="transparent")
         manual_frame.pack(fill="x", padx=20, pady=10)
@@ -223,6 +318,7 @@ class ChillerApp(ctk.CTk):
         self.on_btn.pack(side="left", padx=10)
         self.off_btn = ctk.CTkButton(manual_frame, text="OFF", command=lambda: self.manual(False), font=GLOBAL_FONT)
         self.off_btn.pack(side="left", padx=10)
+        '''
 
         # Pulsante spegni
         self.shutdown_btn = ctk.CTkButton(self, text="Spegni RPi", command=self.shutdown_rpi, font=GLOBAL_FONT)
