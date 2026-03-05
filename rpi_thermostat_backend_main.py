@@ -2,11 +2,10 @@ import time
 import threading
 import json
 import os
-from datetime import datetime
 from flask import Flask, jsonify, request
 from gpiozero import OutputDevice
 import spidev
-import subprocess
+from datetime import datetime
 
 # ==============================
 # CONFIG FILE
@@ -21,46 +20,28 @@ DEFAULT_CONFIG = {
             "hysteresis": 0.5,
             "mode": "heating",
             "enabled": True,
-            "manual_enable": False,
-            "schedule_enabled": False,
-            "schedule": []
+            "schedule": []  # tuple list [ [start_iso, end_iso, setpoint], ... ]
         },
         "ch2": {
             "setpoint": 20.0,
             "hysteresis": 0.5,
             "mode": "heating",
             "enabled": True,
-            "manual_enable": False,
-            "schedule_enabled": False,
             "schedule": []
         }
     }
 }
 
-
 def load_config():
     if not os.path.exists(CONFIG_FILE):
         save_config(DEFAULT_CONFIG)
         return DEFAULT_CONFIG.copy()
-
     try:
         with open(CONFIG_FILE, "r") as f:
-            data = json.load(f)
-
-        # merge campi mancanti
-        for ch in DEFAULT_CONFIG["channels"]:
-            if ch not in data["channels"]:
-                data["channels"][ch] = DEFAULT_CONFIG["channels"][ch]
-            else:
-                for key, val in DEFAULT_CONFIG["channels"][ch].items():
-                    data["channels"][ch].setdefault(key, val)
-
-        return data
-
-    except Exception:
+            return json.load(f)
+    except:
         save_config(DEFAULT_CONFIG)
         return DEFAULT_CONFIG.copy()
-
 
 def save_config(data):
     tmp_file = CONFIG_FILE + ".tmp"
@@ -69,7 +50,6 @@ def save_config(data):
         f.flush()
         os.fsync(f.fileno())
     os.replace(tmp_file, CONFIG_FILE)
-
 
 # ==============================
 # HARDWARE
@@ -92,19 +72,15 @@ spi_ch2 = spidev.SpiDev()
 spi_ch2.open(SPI_BUS, 1)
 spi_ch2.max_speed_hz = 500000
 
-
 def read_max6675(spi):
     raw = spi.xfer2([0x00, 0x00])
     value = (raw[0] << 8) | raw[1]
-
     if value & 0x4:
         return None
-
     return (value >> 3) * 0.25
 
-
 # ==============================
-# CARICAMENTO CONFIG
+# CONFIG LOADING
 # ==============================
 
 config_data = load_config()
@@ -126,8 +102,8 @@ channels = {
     }
 }
 
+manual_enabled = False
 POLL_INTERVAL = 1.0
-
 
 # ==============================
 # CONTROL LOOP
@@ -137,32 +113,28 @@ def control_loop():
     while True:
         try:
             now = datetime.now()
-
             for name, ch in channels.items():
-
                 ch["temp"] = read_max6675(ch["spi"])
 
-                # Modalità manuale per canale
-                if ch["manual_enable"]:
+                if manual_enabled:
                     continue
-
-                # Determina setpoint attivo
-                active_sp = ch["setpoint"]
-
-                if ch["schedule_enabled"] and ch["schedule"]:
-                    for item in ch["schedule"]:
-                        start = datetime.fromisoformat(item["start"])
-                        end = datetime.fromisoformat(item["end"])
-                        if start <= now <= end:
-                            active_sp = item["setpoint"]
-                            break
 
                 if not ch["enabled"] or ch["temp"] is None:
                     ch["relay"].off()
                     ch["output_on"] = False
                     continue
 
-                sp = active_sp
+                # Check: scheduling active?
+                schedule_setpoint = None
+                for entry in ch.get("schedule", []):
+                    start_dt = datetime.fromisoformat(entry[0])
+                    end_dt = datetime.fromisoformat(entry[1])
+                    sp = entry[2]
+                    if start_dt <= now <= end_dt:
+                        schedule_setpoint = sp
+                        break
+
+                sp = schedule_setpoint if schedule_setpoint is not None else ch["setpoint"]
                 h = ch["hysteresis"]
 
                 if ch["mode"] == "heating":
@@ -186,105 +158,114 @@ def control_loop():
 
         time.sleep(POLL_INTERVAL)
 
-
 # ==============================
 # FLASK
 # ==============================
 
 app = Flask(__name__)
 
-
 @app.route("/status")
 def status():
     return jsonify({
-        "CH1": {
-            "temperature": channels["ch1"]["temp"],
-            "setpoint": channels["ch1"]["setpoint"],
-            "hysteresis": channels["ch1"]["hysteresis"],
-            "mode": 1 if channels["ch1"]["mode"] == "heating" else 2,
-            "relay": channels["ch1"]["output_on"],
-            "schedule_enabled": channels["ch1"]["schedule_enabled"]
-        },
-        "CH2": {
-            "temperature": channels["ch2"]["temp"],
-            "setpoint": channels["ch2"]["setpoint"],
-            "hysteresis": channels["ch2"]["hysteresis"],
-            "mode": 1 if channels["ch2"]["mode"] == "heating" else 2,
-            "relay": channels["ch2"]["output_on"],
-            "schedule_enabled": channels["ch2"]["schedule_enabled"]
+        "manual": manual_enabled,
+        "channels": {
+            name.upper(): {
+                "temperature": ch["temp"],
+                "setpoint": ch["setpoint"],
+                "hysteresis": ch["hysteresis"],
+                "mode": 1 if ch["mode"]=="heating" else 2,
+                "enabled": ch["enabled"],
+                "relay": ch["output_on"],
+                "schedule_enabled": len(ch.get("schedule", []))>0
+            }
+            for name, ch in channels.items()
         }
     })
-
 
 @app.post("/settings")
 def settings():
     data = request.json or {}
+    for name, ch in channels.items():
+        prefix = name.upper() + "_"
+        if prefix + "setpoint" in data:
+            ch["setpoint"] = float(data[prefix + "setpoint"])
+        if prefix + "hysteresis" in data:
+            ch["hysteresis"] = float(data[prefix + "hysteresis"])
+        if prefix + "mode" in data:
+            ch["mode"] = "heating" if int(data[prefix + "mode"])==1 else "cooling"
+        if prefix + "manual_enable" in data:
+            pass  # Frontend gestisce solo flag
+    # JSON Update
+    config_data["channels"]["ch1"]["setpoint"] = channels["ch1"]["setpoint"]
+    config_data["channels"]["ch1"]["hysteresis"] = channels["ch1"]["hysteresis"]
+    config_data["channels"]["ch1"]["mode"] = channels["ch1"]["mode"]
+    config_data["channels"]["ch1"]["enabled"] = channels["ch1"]["enabled"]
 
-    for key, value in data.items():
-        if key.startswith("CH1_"):
-            ch = channels["ch1"]
-            channel_name = "ch1"
-        elif key.startswith("CH2_"):
-            ch = channels["ch2"]
-            channel_name = "ch2"
-        else:
-            continue
-
-        param = key.split("_", 1)[1]
-
-        if param == "setpoint":
-            ch["setpoint"] = float(value)
-
-        elif param == "hysteresis":
-            ch["hysteresis"] = float(value)
-
-        elif param == "mode":
-            ch["mode"] = "heating" if int(value) == 1 else "cooling"
-
-        elif param == "manual_enable":
-            ch["manual_enable"] = bool(value)
-
-        elif param == "schedule":
-            # atteso formato:
-            # [{"start": "...", "end": "...", "setpoint": 22.0}, ...]
-            ch["schedule"] = value
-            ch["schedule_enabled"] = True
-
-        config_data["channels"][channel_name][param] = ch.get(param)
+    config_data["channels"]["ch2"]["setpoint"] = channels["ch2"]["setpoint"]
+    config_data["channels"]["ch2"]["hysteresis"] = channels["ch2"]["hysteresis"]
+    config_data["channels"]["ch2"]["mode"] = channels["ch2"]["mode"]
+    config_data["channels"]["ch2"]["enabled"] = channels["ch2"]["enabled"]
 
     save_config(config_data)
-
     return jsonify({"ok": True})
-
 
 @app.post("/manual")
 def manual():
+    global manual_enabled
     data = request.json or {}
-
-    for key, value in data.items():
-        if key.startswith("CH1_"):
-            ch = channels["ch1"]
-        elif key.startswith("CH2_"):
-            ch = channels["ch2"]
-        else:
-            continue
-
-        if key.endswith("_on"):
-            if value:
-                ch["relay"].on()
-            else:
-                ch["relay"].off()
-
-            ch["output_on"] = bool(value)
-
+    manual_enabled = bool(data.get("manual", False))
+    if not manual_enabled:
+        for ch in channels.values():
+            ch["relay"].off()
+            ch["output_on"] = False
     return jsonify({"ok": True})
 
+@app.post("/manual/<channel>")
+def manual_ch(channel):
+    if channel not in channels:
+        return jsonify({"error": "invalid channel"}), 404
+    if not manual_enabled:
+        return jsonify({"error": "manual mode disabled"}), 400
+    state = bool(request.json.get("state", False))
+    ch = channels[channel]
+    if state:
+        ch["relay"].on()
+    else:
+        ch["relay"].off()
+    ch["output_on"] = state
+    return jsonify({"ok": True})
+
+@app.post("/schedule/<channel>")
+def schedule_ch(channel):
+    if channel not in channels:
+        return jsonify({"error": "invalid channel"}), 404
+    data = request.json or {}
+    schedule_list = []
+    for entry in data.get("schedule", []):
+        # list [start_iso, end_iso, setpoint]
+        try:
+            start_dt = datetime.fromisoformat(entry[0])
+            end_dt = datetime.fromisoformat(entry[1])
+            sp = float(entry[2])
+            schedule_list.append([start_dt.isoformat(), end_dt.isoformat(), sp])
+        except:
+            continue
+    channels[channel]["schedule"] = schedule_list
+
+    # Persistent config update
+    config_data["channels"][channel]["schedule"] = schedule_list
+    save_config(config_data)
+    return jsonify({"ok": True})
 
 @app.post("/shutdown")
 def shutdown():
-    subprocess.Popen(["sudo", "shutdown", "-h", "now"])
+    # Relays OFF
+    for ch in channels.values():
+        ch["relay"].off()
+        ch["output_on"] = False
+    # RPi Shutdown
+    os.system("sudo shutdown now")
     return jsonify({"ok": True})
-
 
 # ==============================
 # AVVIO
@@ -293,5 +274,4 @@ def shutdown():
 if __name__ == "__main__":
     thread = threading.Thread(target=control_loop, daemon=True)
     thread.start()
-
     app.run(host="0.0.0.0", port=5000)
