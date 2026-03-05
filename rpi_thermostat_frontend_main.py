@@ -3,6 +3,8 @@ from CTkMessagebox import CTkMessagebox
 import requests
 import threading
 import time
+from datetime import datetime
+from tkcalendar import Calendar
 
 # Cambia con l'IP reale del Raspberry Pi
 RASPBERRY_IP = "192.168.68.128"
@@ -20,7 +22,7 @@ GLOBAL_FONT = (APP_FONT, 14)
 # --- Numeric keypad ---
 _open_keypad_refs = {}
 
-def open_numeric_pad(parent, entry_widget, allow_decimal=True, title="Numeric keypad", keep_previous=False):
+def open_numeric_pad(parent, entry_widget, allow_decimal=True, title="Numeric keypad", keep_previous=False, on_ok=None):
     key = id(entry_widget)
     existing = _open_keypad_refs.get(key)
     if existing:
@@ -58,6 +60,8 @@ def open_numeric_pad(parent, entry_widget, allow_decimal=True, title="Numeric ke
         val = display_var.get()
         entry_widget.delete(0, "end")
         entry_widget.insert(0, val)
+        if callable(on_ok):
+            on_ok()
         on_close()
 
     def do_cancel():
@@ -85,8 +89,8 @@ def open_numeric_pad(parent, entry_widget, allow_decimal=True, title="Numeric ke
     bottom.pack(fill="x", padx=12, pady=(4, 12))
     ctk.CTkButton(bottom, text="Clear", command=clear_all, font=(APP_FONT, 20), height=40).pack(side="left", expand=True, fill="x", padx=6, pady=6)
     ctk.CTkButton(bottom, text="Cancel", command=do_cancel, font=(APP_FONT, 20), height=40).pack(side="left", expand=True, fill="x", padx=6, pady=6)
-    ctk.CTkButton(bottom, text="OK", command=do_ok, font=(APP_FONT, 20), height=40).pack(side="left", expand=True, fill="x", padx=6, pady=6)
-
+    ctk.CTkButton(bottom, text="OK", command=do_ok, font=(APP_FONT, 20), height=40).pack(side="left", expand=True,
+                                                                                         fill="x", padx=6, pady=6)
     def on_close(event=None):
         try:
             _open_keypad_refs.pop(key, None)
@@ -98,6 +102,16 @@ def open_numeric_pad(parent, entry_widget, allow_decimal=True, title="Numeric ke
     pad.bind("<Destroy>", lambda e: _open_keypad_refs.pop(key, None))
     pad.grab_set()
     pad.focus_force()
+
+def center_window(win):
+    win.update_idletasks()
+    width = win.winfo_width()
+    height = win.winfo_height()
+    screen_width = win.winfo_screenwidth()
+    screen_height = win.winfo_screenheight()
+    x = (screen_width // 2) - (width // 2)
+    y = (screen_height // 2) - (height * 2)
+    win.geometry(f"+{x}+{y}")
 
 # --- Canale Frame (riutilizzabile per CH1 e CH2) ---
 class ChannelFrame(ctk.CTkFrame):
@@ -215,6 +229,14 @@ class ChannelFrame(ctk.CTkFrame):
         )
         self.off_btn.pack(side="left")
 
+        self.plan_btn = ctk.CTkButton(
+            self.left_col,
+            text="PLAN",
+            command=self.open_plan_popup,
+            font=GLOBAL_FONT
+        )
+        self.plan_btn.grid(row=6, column=2, columnspan=3, pady=10)
+
         # Disabilitati finché non si attiva la forzatura
         self.update_manual_buttons_state()
 
@@ -290,6 +312,257 @@ class ChannelFrame(ctk.CTkFrame):
         except Exception as e:
             print(f"Errore manual CH{self.ch_num}: {e}")
 
+    def open_plan_popup(self):
+        channel = self.ch_num
+        popup = ctk.CTkToplevel(self)
+        popup.title(f"Pianificazione CH{channel}")
+        popup.geometry("600x650")
+        center_window(popup)
+        popup.lift()
+        popup.focus_force()
+        popup.grab_set()
+        popup.attributes("-topmost", True)
+        popup.after(200, lambda: popup.attributes("-topmost", False))
+
+        plan_data = []
+
+        title_label = ctk.CTkLabel(popup, text=f"Pianificazione CH{channel}", font=("Arial", 18, "bold"))
+        title_label.pack(pady=10)
+
+        count_var = ctk.StringVar(value="2")
+
+        def open_count_pad(event=None):
+            open_numeric_pad(
+                parent=popup,
+                entry_widget=count_entry,
+                allow_decimal=False,
+                title="Numero di intervalli",
+                keep_previous=False,
+                on_ok=rebuild_intervals
+            )
+
+        count_label = ctk.CTkLabel(popup, text="Numero di intervalli:")
+        count_label.pack()
+        count_entry = ctk.CTkEntry(popup, textvariable=count_var, justify="center")
+        count_entry.pack(pady=5)
+        count_entry.bind("<Button-1>", open_count_pad)
+
+        container = ctk.CTkFrame(popup)
+        container.pack(fill="both", expand=True, padx=10, pady=10)
+        container.grid_columnconfigure(0, weight=1)
+
+        entries = []
+
+        # -------- Placeholder helper --------
+        def add_placeholder(entry, placeholder_text):
+            entry.insert(0, placeholder_text)
+            entry.configure(text_color="#888")
+
+            def on_focus_in(event):
+                if entry.get() == placeholder_text:
+                    entry.delete(0, "end")
+                    entry.configure(text_color="#fff")
+
+            def on_focus_out(event):
+                if entry.get() == "":
+                    entry.insert(0, placeholder_text)
+                    entry.configure(text_color="#888")
+
+            entry.bind("<FocusIn>", on_focus_in)
+            entry.bind("<FocusOut>", on_focus_out)
+
+        # -------- Validation helpers --------
+        def mark_row_invalid(index):
+            row_frame = container.winfo_children()[index]
+            for widget in row_frame.winfo_children():
+                if isinstance(widget, ctk.CTkEntry):
+                    widget.configure(border_color="red")
+
+        def reset_all_borders():
+            default_border = ctk.ThemeManager.theme["CTkEntry"]["border_color"]
+            for row in container.winfo_children():
+                for widget in row.winfo_children():
+                    if isinstance(widget, ctk.CTkEntry):
+                        widget.configure(border_color=default_border)
+
+        def validate_plan():
+            valid = True
+            reset_all_borders()
+
+            parsed_rows = []
+
+            for i, (start_var, end_var, _) in enumerate(entries):
+                try:
+                    start_dt = datetime.strptime(start_var.get(), "%d/%m/%Y")
+                    end_dt = datetime.strptime(end_var.get(), "%d/%m/%Y")
+                    parsed_rows.append((start_dt, end_dt))
+                except:
+                    valid = False
+                    continue
+
+            for i in range(len(parsed_rows)):
+                start_dt, end_dt = parsed_rows[i]
+
+                if end_dt <= start_dt:
+                    valid = False
+                    mark_row_invalid(i)
+
+                if i < len(parsed_rows) - 1:
+                    next_start, _ = parsed_rows[i + 1]
+                    if end_dt >= next_start:
+                        valid = False
+                        mark_row_invalid(i)
+                        mark_row_invalid(i + 1)
+
+            confirm_button.configure(state="normal" if valid else "disabled")
+
+        def _on_var_change(name: str, index: str, mode: str) -> None:
+            validate_plan()
+
+        # -------- Rebuild intervals --------
+        def rebuild_intervals():
+            for widget in container.winfo_children():
+                widget.destroy()
+            entries.clear()
+
+            try:
+                count = int(count_var.get())
+            except:
+                return
+
+            for i in range(count):
+                row = ctk.CTkFrame(container)
+                row.pack(fill="x", pady=5)
+
+                row.grid_columnconfigure(1, weight=1)
+                row.grid_columnconfigure(2, weight=1)
+                row.grid_columnconfigure(3, weight=1)
+
+                interval_label = ctk.CTkLabel(row, text=f"Intervallo {i + 1}")
+                interval_label.grid(row=0, column=0, padx=5)
+
+                start_var = ctk.StringVar()
+                end_var = ctk.StringVar()
+                setpoint_var = ctk.StringVar()
+
+                def open_calendar(d_var):
+                    cal_popup = ctk.CTkToplevel(popup)
+                    cal_popup.title("Seleziona una data")
+                    cal_popup.geometry("550x600")
+                    center_window(cal_popup)
+                    cal_popup.minsize(550, 600)
+                    cal_popup.transient(popup)
+                    cal_popup.grab_set()
+
+                    cal = Calendar(cal_popup, date_pattern="dd/mm/yyyy")
+                    cal.pack(pady=10, expand=True, fill="both")
+
+                    def confirm_date():
+                        d_var.set(cal.get_date())
+                        cal_popup.destroy()
+
+                    confirm_btn = ctk.CTkButton(cal_popup, text="OK", command=confirm_date)
+                    confirm_btn.pack(pady=10)
+
+                start_entry = ctk.CTkEntry(row, textvariable=start_var)
+                start_entry.grid(row=0, column=1, padx=5, sticky="ew")
+                add_placeholder(start_entry, "Data iniziale")
+                start_entry.bind("<Button-1>", lambda e, dv=start_var: open_calendar(dv))
+
+                end_entry = ctk.CTkEntry(row, textvariable=end_var)
+                end_entry.grid(row=0, column=2, padx=5, sticky="ew")
+                add_placeholder(end_entry, "Data finale")
+                end_entry.bind("<Button-1>", lambda e, dv=end_var: open_calendar(dv))
+
+                start_var.trace_add("write", _on_var_change)
+                end_var.trace_add("write", _on_var_change)
+
+                setpoint_entry = ctk.CTkEntry(row, textvariable=setpoint_var)
+                setpoint_entry.grid(row=0, column=3, padx=5, sticky="ew")
+                add_placeholder(setpoint_entry, "Temperatura (°C)")
+                setpoint_entry.bind(
+                    "<Button-1>",
+                    lambda e, sp_entry=setpoint_entry: open_numeric_pad(
+                        parent=popup,
+                        entry_widget=sp_entry,
+                        allow_decimal=True,
+                        title="Setpoint °C",
+                        keep_previous=False
+                    )
+                )
+
+                entries.append((start_var, end_var, setpoint_var))
+
+        rebuild_intervals()
+
+        # -------- Confirm --------
+        def confirm_plan():
+            plan_data.clear()
+            confirmation_time = datetime.now()
+
+            for start_var, end_var, sp_var in entries:
+                start_str = start_var.get()
+                end_str = end_var.get()
+                sp_str = sp_var.get()
+
+                if not start_str or not end_str or not sp_str:
+                    continue
+
+                try:
+                    start_dt = datetime.strptime(start_str, "%d/%m/%Y").replace(
+                        hour=confirmation_time.hour,
+                        minute=confirmation_time.minute,
+                        second=confirmation_time.second
+                    )
+                    end_dt = datetime.strptime(end_str, "%d/%m/%Y").replace(
+                        hour=confirmation_time.hour,
+                        minute=confirmation_time.minute,
+                        second=confirmation_time.second
+                    )
+                    setpoint = float(sp_str)
+                    if start_dt <= end_dt:
+                        plan_data.append((start_dt, end_dt, setpoint))
+                except:
+                    continue
+
+            if not plan_data:
+                return
+
+            plan_data.sort(key=lambda x: x[0])
+            self.sp_entry.configure(state="disabled")
+
+            if not hasattr(self, "plan"):
+                self.plan = {}
+            self.plan[channel] = plan_data
+
+            popup.destroy()
+
+        confirm_button = ctk.CTkButton(
+            popup,
+            text="Conferma Pianificazione",
+            command=confirm_plan,
+            state="disabled"
+        )
+        confirm_button.pack(pady=20)
+
+    def open_calendar(self, target_entry):
+        cal_win = ctk.CTkToplevel(self)
+        cal_win.title("Seleziona una data")
+        cal_win.geometry("550x600")
+        center_window(cal_win)
+        cal_win.minsize(550, 600)
+        cal_win.grab_set()
+
+        cal = Calendar(cal_win, selectmode="day", date_pattern="dd/mm/yyyy")
+        cal.pack(fill="both", expand=True, padx=10, pady=10)
+
+        def confirm():
+            target_entry.delete(0, "end")
+            target_entry.insert(0, cal.get_date())
+            cal_win.destroy()
+
+        ctk.CTkButton(cal_win, text="OK", command=confirm).pack(pady=5)
+
 # --- Main App ---
 class ThermostatApp(ctk.CTk):
     def __init__(self):
@@ -348,7 +621,7 @@ class ThermostatApp(ctk.CTk):
         else:
             self.connection_label.configure(text="DISCONNECTED", text_color="red")
 
-            # opzionale: reset valori UI
+            # UI Parameters Reset
             for ch in [self.ch1, self.ch2]:
                 ch.temp_label.configure(text="Temperatura: -- °C")
                 ch.sp_curr_label.configure(text="Setpoint attuale: --")
@@ -384,6 +657,16 @@ class ThermostatApp(ctk.CTk):
                 self.ch2.mode_curr_label.configure(text=f"Modalità: {mode_label2}")
                 relay_state2 = "ON" if ch2_data.get("relay", False) else "OFF"
                 self.ch2.relay_label.configure(text=f"Relay: {relay_state2}")
+
+                # Disabling setpoint ctrl if scheduling enabled
+                if ch1_data.get("schedule_enabled"):
+                    self.ch1.sp_entry.configure(state="disabled")
+                else:
+                    self.ch1.sp_entry.configure(state="normal")
+                if ch2_data.get("schedule_enabled"):
+                    self.ch2.sp_entry.configure(state="disabled")
+                else:
+                    self.ch2.sp_entry.configure(state="normal")
 
             except Exception:
                 self.set_connection_state(False)
