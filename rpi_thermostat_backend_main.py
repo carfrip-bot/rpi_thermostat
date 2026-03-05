@@ -2,9 +2,11 @@ import time
 import threading
 import json
 import os
+from datetime import datetime
 from flask import Flask, jsonify, request
 from gpiozero import OutputDevice
 import spidev
+import subprocess
 
 # ==============================
 # CONFIG FILE
@@ -18,13 +20,19 @@ DEFAULT_CONFIG = {
             "setpoint": 20.0,
             "hysteresis": 0.5,
             "mode": "heating",
-            "enabled": True
+            "enabled": True,
+            "manual_enable": False,
+            "schedule_enabled": False,
+            "schedule": []
         },
         "ch2": {
             "setpoint": 20.0,
             "hysteresis": 0.5,
             "mode": "heating",
-            "enabled": True
+            "enabled": True,
+            "manual_enable": False,
+            "schedule_enabled": False,
+            "schedule": []
         }
     }
 }
@@ -37,9 +45,19 @@ def load_config():
 
     try:
         with open(CONFIG_FILE, "r") as f:
-            return json.load(f)
-    except:
-        # file corrotto
+            data = json.load(f)
+
+        # merge campi mancanti
+        for ch in DEFAULT_CONFIG["channels"]:
+            if ch not in data["channels"]:
+                data["channels"][ch] = DEFAULT_CONFIG["channels"][ch]
+            else:
+                for key, val in DEFAULT_CONFIG["channels"][ch].items():
+                    data["channels"][ch].setdefault(key, val)
+
+        return data
+
+    except Exception:
         save_config(DEFAULT_CONFIG)
         return DEFAULT_CONFIG.copy()
 
@@ -108,7 +126,6 @@ channels = {
     }
 }
 
-manual_enabled = False
 POLL_INTERVAL = 1.0
 
 
@@ -119,19 +136,33 @@ POLL_INTERVAL = 1.0
 def control_loop():
     while True:
         try:
+            now = datetime.now()
+
             for name, ch in channels.items():
 
                 ch["temp"] = read_max6675(ch["spi"])
 
-                if manual_enabled:
+                # Modalità manuale per canale
+                if ch["manual_enable"]:
                     continue
+
+                # Determina setpoint attivo
+                active_sp = ch["setpoint"]
+
+                if ch["schedule_enabled"] and ch["schedule"]:
+                    for item in ch["schedule"]:
+                        start = datetime.fromisoformat(item["start"])
+                        end = datetime.fromisoformat(item["end"])
+                        if start <= now <= end:
+                            active_sp = item["setpoint"]
+                            break
 
                 if not ch["enabled"] or ch["temp"] is None:
                     ch["relay"].off()
                     ch["output_on"] = False
                     continue
 
-                sp = ch["setpoint"]
+                sp = active_sp
                 h = ch["hysteresis"]
 
                 if ch["mode"] == "heating":
@@ -166,88 +197,92 @@ app = Flask(__name__)
 @app.route("/status")
 def status():
     return jsonify({
-        "manual": manual_enabled,
-        "channels": {
-            name: {
-                "temp": ch["temp"],
-                "setpoint": ch["setpoint"],
-                "hysteresis": ch["hysteresis"],
-                "mode": ch["mode"],
-                "enabled": ch["enabled"],
-                "output_on": ch["output_on"]
-            }
-            for name, ch in channels.items()
+        "CH1": {
+            "temperature": channels["ch1"]["temp"],
+            "setpoint": channels["ch1"]["setpoint"],
+            "hysteresis": channels["ch1"]["hysteresis"],
+            "mode": 1 if channels["ch1"]["mode"] == "heating" else 2,
+            "relay": channels["ch1"]["output_on"],
+            "schedule_enabled": channels["ch1"]["schedule_enabled"]
+        },
+        "CH2": {
+            "temperature": channels["ch2"]["temp"],
+            "setpoint": channels["ch2"]["setpoint"],
+            "hysteresis": channels["ch2"]["hysteresis"],
+            "mode": 1 if channels["ch2"]["mode"] == "heating" else 2,
+            "relay": channels["ch2"]["output_on"],
+            "schedule_enabled": channels["ch2"]["schedule_enabled"]
         }
     })
 
 
-@app.post("/config/<channel>")
-def config_channel(channel):
-    if channel not in channels:
-        return jsonify({"error": "invalid channel"}), 404
-
+@app.post("/settings")
+def settings():
     data = request.json or {}
-    ch = channels[channel]
 
-    if "setpoint" in data:
-        ch["setpoint"] = float(data["setpoint"])
+    for key, value in data.items():
+        if key.startswith("CH1_"):
+            ch = channels["ch1"]
+            channel_name = "ch1"
+        elif key.startswith("CH2_"):
+            ch = channels["ch2"]
+            channel_name = "ch2"
+        else:
+            continue
 
-    if "hysteresis" in data:
-        ch["hysteresis"] = float(data["hysteresis"])
+        param = key.split("_", 1)[1]
 
-    if "mode" in data:
-        if data["mode"] in ["heating", "cooling"]:
-            ch["mode"] = data["mode"]
+        if param == "setpoint":
+            ch["setpoint"] = float(value)
 
-    if "enabled" in data:
-        ch["enabled"] = bool(data["enabled"])
+        elif param == "hysteresis":
+            ch["hysteresis"] = float(value)
 
-    # aggiorno file persistente
-    config_data["channels"][channel] = {
-        "setpoint": ch["setpoint"],
-        "hysteresis": ch["hysteresis"],
-        "mode": ch["mode"],
-        "enabled": ch["enabled"]
-    }
+        elif param == "mode":
+            ch["mode"] = "heating" if int(value) == 1 else "cooling"
+
+        elif param == "manual_enable":
+            ch["manual_enable"] = bool(value)
+
+        elif param == "schedule":
+            # atteso formato:
+            # [{"start": "...", "end": "...", "setpoint": 22.0}, ...]
+            ch["schedule"] = value
+            ch["schedule_enabled"] = True
+
+        config_data["channels"][channel_name][param] = ch.get(param)
 
     save_config(config_data)
 
     return jsonify({"ok": True})
 
 
-@app.post("/manual_mode")
-def manual_mode():
-    global manual_enabled
+@app.post("/manual")
+def manual():
     data = request.json or {}
-    manual_enabled = bool(data.get("enabled", False))
 
-    if not manual_enabled:
-        for ch in channels.values():
-            ch["relay"].off()
-            ch["output_on"] = False
+    for key, value in data.items():
+        if key.startswith("CH1_"):
+            ch = channels["ch1"]
+        elif key.startswith("CH2_"):
+            ch = channels["ch2"]
+        else:
+            continue
+
+        if key.endswith("_on"):
+            if value:
+                ch["relay"].on()
+            else:
+                ch["relay"].off()
+
+            ch["output_on"] = bool(value)
 
     return jsonify({"ok": True})
 
 
-@app.post("/manual/<channel>")
-def manual_control(channel):
-    if channel not in channels:
-        return jsonify({"error": "invalid channel"}), 404
-
-    if not manual_enabled:
-        return jsonify({"error": "manual mode disabled"}), 400
-
-    state = bool(request.json.get("state", False))
-
-    ch = channels[channel]
-
-    if state:
-        ch["relay"].on()
-    else:
-        ch["relay"].off()
-
-    ch["output_on"] = state
-
+@app.post("/shutdown")
+def shutdown():
+    subprocess.Popen(["sudo", "shutdown", "-h", "now"])
     return jsonify({"ok": True})
 
 
