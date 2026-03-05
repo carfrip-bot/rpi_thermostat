@@ -1,52 +1,99 @@
-   _______________________________________________
- /                                                 \
-|  Dual Channel Raspberry Pi Thermostat Controller  |
- \_________________________________________________/
+_______________________________________________________________________________________________
+
+# Dual Channel Raspberry Pi Thermostat Controller
+
+_______________________________________________________________________________________________
 
 
-OVERVIEW
+## OVERVIEW
 
-This project implements a dual-channel temperature control system based on a Raspberry Pi 3 B+.
+This project implements a dual-channel temperature control system based on a Raspberry Pi 3+.
 Each channel (CH1 and CH2) operates independently and can be configured in:
 
-- Heating mode
-- Cooling mode
-- Automatic control
-- Manual override
+-   Heating mode
+-   Cooling mode
+-   Automatic control
+-   Manual override
 
-The system is designed for applications such as:
-- Fermentation control
-- Cold crash control
-- Laboratory temperature regulation
+The system is suitable for:
 
-_______________________________________________________________________________________________
-
-FEATURES
-
-- Dual independent temperature channels
-- Separate heating/cooling mode per channel
-- Configurable setpoint and hysteresis
-- Manual override per channel
-- Persistent configuration (JSON file retention)
-- Web API backend (Flask-based)
-- CustomTkinter desktop frontend
-- Support for MAX6675 thermocouple modules
-- SSR (BERM-SK40DA) output control
-- Real-time status updates
-- Safe shutdown endpoint for Raspberry Pi
+-   Fermentation control
+-   Brewing systems
+-   Process temperature regulation
+-   Laboratory applications
 
 _______________________________________________________________________________________________
 
+## FEATURES
 
-HARDWARE REQUIREMENTS
+-   Dual independent temperature channels
+-   Configurable setpoint and hysteresis
+-   Manual override per channel
+-   Persistent configuration storage (JSON)
+-   Flask-based REST API backend
+-   CustomTkinter desktop frontend
+-   MAX6675 thermocouple support
+-   SSR relay control
+-   Real-time monitoring
+-   Safe shutdown endpoint
 
-- Raspberry Pi 3B+ (or compatible)
-- 2x MAX6675 thermocouple modules
-- 2x K-type thermocouples
-- BERM-SK40DA SSR or similar (dual channel)
-- ULN2003 driver module (for SSR trigger isolation)
-- Heating and/or cooling loads
+_______________________________________________________________________________________________
+
+
+## HARDWARE REQUIREMENTS
+
+-   Raspberry Pi 3B+ (or compatible)
+-   2x MAX6675 thermocouple modules
+-   2x K-type thermocouples
+-   2x SSR relays (e.g., BERM-SK40DA)
+-   Properly rated wiring and protection devices
+
+⚠️ Warning: This system may switch mains voltage. Ensure proper
+electrical safety and protection.
+
+_______________________________________________________________________________________________
+
+
+## SOFTWARE REQUIREMENTS
+
+Backend (Raspberry Pi)
+
+-   Python 3
+-   Flask
+-   spidev
+-   RPi.GPIO
+
+Install dependencies:
+
+    pip install flask spidev RPi.GPIO
+
+Frontend (Desktop)
+
+-   Python 3
+-   customtkinter
+-   requests
+-   CTkMessagebox
+
+Install dependencies:
+
+    pip install customtkinter requests CTkMessagebox
+
 - Properly rated power wiring and protection
 
 
-⚠️ Warning: This system switches mains voltage. Ensure proper electrical safety, grounding, and protection devices.
+_______________________________________________________________________________________________
+
+## SAFETY RECOMMENDATIONS
+
+-   Use proper fuses or circuit breakers.
+-   Ensure SSR heat dissipation.
+-   Use appropriately rated wiring.
+-   Never work on live circuits.
+
+_______________________________________________________________________________________________
+
+## LICENSE
+
+Provided for educational and experimental purposes. Use at your own
+risk.
+
