@@ -7,7 +7,7 @@ from datetime import datetime
 from tkcalendar import Calendar
 
 # Cambia con l'IP reale del Raspberry Pi
-RASPBERRY_IP = "192.168.68.128"
+RASPBERRY_IP = "192.168.1.31" #"192.168.68.128"
 API_STATUS = f"http://{RASPBERRY_IP}:5000/status"
 API_SETTINGS = f"http://{RASPBERRY_IP}:5000/settings"
 API_MANUAL = f"http://{RASPBERRY_IP}:5000/manual"
@@ -235,7 +235,7 @@ class ChannelFrame(ctk.CTkFrame):
             command=self.open_plan_popup,
             font=GLOBAL_FONT
         )
-        self.plan_btn.grid(row=6, column=2, columnspan=3, pady=10)
+        self.plan_btn.grid(row=4, column=2, columnspan=3, pady=10)
 
         # Disabilitati finché non si attiva la forzatura
         self.update_manual_buttons_state()
@@ -284,10 +284,11 @@ class ChannelFrame(ctk.CTkFrame):
     # --- TOGGLE FORZATURA ---
     def manual_enable_toggle(self):
         try:
-            val = 1.0 if self.manual_enable_var.get() else 0.0
+            val = bool(self.manual_enable_var.get())
+            # Chiama l'endpoint corretto per attivare la modalità manuale globale
             requests.post(
-                API_SETTINGS,
-                json={f"CH{self.ch_num}_manual_enable": val},
+                API_MANUAL,
+                json={"manual": val},
                 timeout=2
             )
         except Exception as e:
@@ -304,9 +305,11 @@ class ChannelFrame(ctk.CTkFrame):
     # --- COMANDO MANUALE ON/OFF ---
     def manual_set(self, state: bool):
         try:
+            # Costruisce l'URL specifico per il canale (es. /manual/ch1)
+            ch_id = f"ch{self.ch_num}"
             requests.post(
-                API_MANUAL,
-                json={f"CH{self.ch_num}_on": state},
+                f"{API_MANUAL}/{ch_id}",
+                json={"state": state},
                 timeout=2
             )
         except Exception as e:
@@ -497,8 +500,7 @@ class ChannelFrame(ctk.CTkFrame):
 
         # -------- Confirm --------
         def confirm_plan():
-            plan_data.clear()
-            confirmation_time = datetime.now()
+            plan_data = []
 
             for start_var, end_var, sp_var in entries:
                 start_str = start_var.get()
@@ -509,31 +511,30 @@ class ChannelFrame(ctk.CTkFrame):
                     continue
 
                 try:
+                    # Inizio giornata: ore 00:00:00
                     start_dt = datetime.strptime(start_str, "%d/%m/%Y").replace(
-                        hour=confirmation_time.hour,
-                        minute=confirmation_time.minute,
-                        second=confirmation_time.second
+                        hour=0, minute=0, second=0
                     )
+                    # Fine giornata: ore 23:59:59
                     end_dt = datetime.strptime(end_str, "%d/%m/%Y").replace(
-                        hour=confirmation_time.hour,
-                        minute=confirmation_time.minute,
-                        second=confirmation_time.second
+                        hour=23, minute=59, second=59
                     )
                     setpoint = float(sp_str)
+
                     if start_dt <= end_dt:
-                        plan_data.append((start_dt, end_dt, setpoint))
-                except:
+                        # Il backend si aspetta una lista di [start_iso, end_iso, setpoint]
+                        plan_data.append([start_dt.isoformat(), end_dt.isoformat(), setpoint])
+                except Exception as e:
+                    print(f"Errore parsing plan: {e}")
                     continue
 
-            if not plan_data:
-                return
-
-            plan_data.sort(key=lambda x: x[0])
-            self.sp_entry.configure(state="disabled")
-
-            if not hasattr(self, "plan"):
-                self.plan = {}
-            self.plan[channel] = plan_data
+            # Invia i dati al backend (anche se è vuoto, così resetta il plan se togli tutti gli intervalli)
+            try:
+                ch_id = f"ch{channel}"
+                url = f"http://{RASPBERRY_IP}:5000/schedule/{ch_id}"
+                requests.post(url, json={"schedule": plan_data}, timeout=2)
+            except Exception as e:
+                print(f"Errore invio schedule: {e}")
 
             popup.destroy()
 
@@ -577,8 +578,8 @@ class ThermostatApp(ctk.CTk):
         self.connected = False
         self.connection_label = ctk.CTkLabel(
             self,
-            text="DISCONNECTED",
-            font=(APP_FONT, 14, "bold"),
+            text="RASPBERRY SCOLLEGATA",
+            font=(APP_FONT, 25, "bold"),
             text_color="red"
         )
         self.connection_label.pack(pady=5)
@@ -604,7 +605,7 @@ class ThermostatApp(ctk.CTk):
         '''
 
         # Pulsante spegni
-        self.shutdown_btn = ctk.CTkButton(self, text="Spegni RPi", command=self.shutdown_rpi, font=GLOBAL_FONT)
+        self.shutdown_btn = ctk.CTkButton(self, text="Spegni Termostato", command=self.shutdown_rpi, font=GLOBAL_FONT)
         self.shutdown_btn.pack(side="bottom", pady=10)
 
         # Start loop aggiornamento stato
@@ -617,9 +618,9 @@ class ThermostatApp(ctk.CTk):
         self.connected = state
 
         if state:
-            self.connection_label.configure(text="CONNECTED", text_color="green")
+            self.connection_label.configure(text="TERMOSTATO ONLINE", text_color="green")
         else:
-            self.connection_label.configure(text="DISCONNECTED", text_color="red")
+            self.connection_label.configure(text="TERMOSTATO OFFLINE", text_color="red")
 
             # UI Parameters Reset
             for ch in [self.ch1, self.ch2]:
@@ -638,8 +639,11 @@ class ThermostatApp(ctk.CTk):
 
                 self.set_connection_state(True)
 
-                # CH1
-                ch1_data = data.get("CH1", {})
+                # Estrai il blocco 'channels' dal JSON
+                channels_data = data.get("channels", {})
+
+                #
+                ch1_data = channels_data.get("CH1", {})
                 self.ch1.temp_label.configure(text=f"Temperatura: {ch1_data.get('temperature', '--')} °C")
                 self.ch1.sp_curr_label.configure(text=f"Setpoint attuale: {ch1_data.get('setpoint', '--')}")
                 self.ch1.hyst_curr_label.configure(text=f"Isteresi attuale: {ch1_data.get('hysteresis', '--')}")
@@ -649,7 +653,7 @@ class ThermostatApp(ctk.CTk):
                 self.ch1.relay_label.configure(text=f"Relay: {relay_state}")
 
                 # CH2
-                ch2_data = data.get("CH2", {})
+                ch2_data = channels_data.get("CH2", {})
                 self.ch2.temp_label.configure(text=f"Temperatura: {ch2_data.get('temperature', '--')} °C")
                 self.ch2.sp_curr_label.configure(text=f"Setpoint attuale: {ch2_data.get('setpoint', '--')}")
                 self.ch2.hyst_curr_label.configure(text=f"Isteresi attuale: {ch2_data.get('hysteresis', '--')}")
@@ -675,7 +679,9 @@ class ThermostatApp(ctk.CTk):
 
     def manual(self, state: bool):
         try:
-            requests.post(API_MANUAL, json={"CH1_on": state, "CH2_on": state}, timeout=2)
+            # Esempio per canale 1
+            requests.post(f"http://{RASPBERRY_IP}:5000/manual/ch1", json={"state": state}, timeout=2)
+            requests.post(f"http://{RASPBERRY_IP}:5000/manual/ch2", json={"state": state}, timeout=2)
         except:
             pass
 

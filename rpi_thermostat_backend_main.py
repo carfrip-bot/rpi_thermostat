@@ -55,7 +55,7 @@ def save_config(data):
 # HARDWARE
 # ==============================
 
-RELAY_ACTIVE_LOW = True
+RELAY_ACTIVE_LOW = False
 SPI_BUS = 0
 
 CH1_PIN = 17
@@ -112,49 +112,67 @@ POLL_INTERVAL = 1.0
 def control_loop():
     while True:
         try:
-            now = datetime.now()
-            for name, ch in channels.items():
-                ch["temp"] = read_max6675(ch["spi"])
+            # 1. Lettura dei sensori
+            t1 = read_max6675(spi_ch1)
+            t2 = 20.0  # Valore fisso per test
 
+            # 2. Aggiornamento immediato del dizionario
+            channels["ch1"]["temp"] = t1
+            channels["ch2"]["temp"] = t2
+
+            now = datetime.now()
+
+            # 3. Logica di controllo per ogni canale
+            for name, ch in channels.items():
+                # Se la modalità manuale è attiva, non fare nulla (decide l'utente)
                 if manual_enabled:
                     continue
 
-                if not ch["enabled"] or ch["temp"] is None:
+                # Protezione: se il canale è disattivato o la sonda legge None
+                if not ch.get("enabled", True) or ch["temp"] is None:
                     ch["relay"].off()
                     ch["output_on"] = False
                     continue
 
-                # Check: scheduling active?
-                schedule_setpoint = None
+                # Controllo Programmazione (Scheduling)
+                current_setpoint = ch["setpoint"]
+                has_active_schedule = False
+
                 for entry in ch.get("schedule", []):
                     start_dt = datetime.fromisoformat(entry[0])
                     end_dt = datetime.fromisoformat(entry[1])
-                    sp = entry[2]
                     if start_dt <= now <= end_dt:
-                        schedule_setpoint = sp
+                        current_setpoint = entry[2]
+                        has_active_schedule = True
                         break
 
-                sp = schedule_setpoint if schedule_setpoint is not None else ch["setpoint"]
-                h = ch["hysteresis"]
+                # Se non c'è uno schedule attivo, puliamo la variabile temporanea
+                if has_active_schedule:
+                    ch["active_setpoint"] = current_setpoint
+                else:
+                    ch.pop("active_setpoint", None)
 
+                h = ch["hysteresis"]
+                temp = ch["temp"]
+
+                # Logica Termostato
                 if ch["mode"] == "heating":
-                    if ch["temp"] < sp - h:
+                    if temp < current_setpoint - h:
                         ch["relay"].on()
                         ch["output_on"] = True
-                    elif ch["temp"] >= sp:
+                    elif temp >= current_setpoint:
                         ch["relay"].off()
                         ch["output_on"] = False
-
                 elif ch["mode"] == "cooling":
-                    if ch["temp"] > sp + h:
+                    if temp > current_setpoint + h:
                         ch["relay"].on()
                         ch["output_on"] = True
-                    elif ch["temp"] <= sp:
+                    elif temp <= current_setpoint:
                         ch["relay"].off()
                         ch["output_on"] = False
 
         except Exception as e:
-            print("Errore:", e)
+            print(f"Errore nel ciclo di controllo: {e}")
 
         time.sleep(POLL_INTERVAL)
 
@@ -171,7 +189,7 @@ def status():
         "channels": {
             name.upper(): {
                 "temperature": ch["temp"],
-                "setpoint": ch["setpoint"],
+                "setpoint": ch.get("active_setpoint", ch["setpoint"]),
                 "hysteresis": ch["hysteresis"],
                 "mode": 1 if ch["mode"]=="heating" else 2,
                 "enabled": ch["enabled"],
@@ -183,30 +201,60 @@ def status():
     })
 
 @app.post("/settings")
+@app.post("/settings")
 def settings():
-    data = request.json or {}
-    for name, ch in channels.items():
-        prefix = name.upper() + "_"
-        if prefix + "setpoint" in data:
-            ch["setpoint"] = float(data[prefix + "setpoint"])
-        if prefix + "hysteresis" in data:
-            ch["hysteresis"] = float(data[prefix + "hysteresis"])
-        if prefix + "mode" in data:
-            ch["mode"] = "heating" if int(data[prefix + "mode"])==1 else "cooling"
-        if prefix + "manual_enable" in data:
-            pass  # Frontend gestisce solo flag
-    # JSON Update
-    config_data["channels"]["ch1"]["setpoint"] = channels["ch1"]["setpoint"]
-    config_data["channels"]["ch1"]["hysteresis"] = channels["ch1"]["hysteresis"]
-    config_data["channels"]["ch1"]["mode"] = channels["ch1"]["mode"]
-    config_data["channels"]["ch1"]["enabled"] = channels["ch1"]["enabled"]
+    data = request.json
+    if not data:
+        return jsonify({"error": "No data received"}), 400
 
-    config_data["channels"]["ch2"]["setpoint"] = channels["ch2"]["setpoint"]
-    config_data["channels"]["ch2"]["hysteresis"] = channels["ch2"]["hysteresis"]
-    config_data["channels"]["ch2"]["mode"] = channels["ch2"]["mode"]
-    config_data["channels"]["ch2"]["enabled"] = channels["ch2"]["enabled"]
+    # Mappatura tra i nomi del Frontend (CH1_...) e le chiavi del Backend (ch1)
+    mapping = {
+        "CH1": "ch1",
+        "CH2": "ch2"
+    }
 
+    for front_prefix, back_id in mapping.items():
+        # Aggiornamento Setpoint
+        if f"{front_prefix}_setpoint" in data:
+            try:
+                new_sp = float(data[f"{front_prefix}_setpoint"])
+                config_data["channels"][back_id]["setpoint"] = new_sp
+
+                # Svuota lo scheduling perché l'utente ha preso il controllo
+                config_data["channels"][back_id]["schedule"] = []
+                channels[back_id]["schedule"] = []
+                # Rimuove anche il setpoint attivo temporaneo
+                if "active_setpoint" in channels[back_id]:
+                    del channels[back_id]["active_setpoint"]
+            except ValueError:
+                pass
+
+        # Aggiornamento Isteresi
+        if f"{front_prefix}_hysteresis" in data:
+            try:
+                config_data["channels"][back_id]["hysteresis"] = float(data[f"{front_prefix}_hysteresis"])
+            except ValueError:
+                pass
+
+        # Aggiornamento Modalità (1 = heating, 2 = cooling)
+        if f"{front_prefix}_mode" in data:
+            val = data[f"{front_prefix}_mode"]
+            config_data["channels"][back_id]["mode"] = "heating" if val == 1 else "cooling"
+
+        # Aggiornamento Stato Abilitazione (On/Off generale del canale)
+        if f"{front_prefix}_enabled" in data:
+            config_data["channels"][back_id]["enabled"] = bool(data[f"{front_prefix}_enabled"])
+
+    # Salvataggio persistente su config.json
     save_config(config_data)
+
+    # Sincronizzazione immediata della variabile di runtime 'channels' usata dal loop
+    for ch_id in ["ch1", "ch2"]:
+        channels[ch_id]["setpoint"] = config_data["channels"][ch_id]["setpoint"]
+        channels[ch_id]["hysteresis"] = config_data["channels"][ch_id]["hysteresis"]
+        channels[ch_id]["mode"] = config_data["channels"][ch_id]["mode"]
+        channels[ch_id]["enabled"] = config_data["channels"][ch_id]["enabled"]
+
     return jsonify({"ok": True})
 
 @app.post("/manual")
