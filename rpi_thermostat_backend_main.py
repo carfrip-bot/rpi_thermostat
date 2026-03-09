@@ -6,6 +6,7 @@ from flask import Flask, jsonify, request
 from gpiozero import OutputDevice
 import spidev
 from datetime import datetime
+from collections import deque
 
 # ==============================
 # CONFIG FILE
@@ -103,7 +104,10 @@ channels = {
 }
 
 manual_enabled = False
-POLL_INTERVAL = 1.0
+# buffer per campionamento temperature
+history_ch1 = deque(maxlen=10)
+history_ch2 = deque(maxlen=10)
+POLL_INTERVAL = 0.2
 
 # ==============================
 # CONTROL LOOP
@@ -112,13 +116,27 @@ POLL_INTERVAL = 1.0
 def control_loop():
     while True:
         try:
-            # 1. Lettura dei sensori
-            t1 = read_max6675(spi_ch1)
-            t2 = 20.0  # Valore fisso per test
+            # 1. Campionamento della temperatura
+            t1_raw = read_max6675(spi_ch1)
+            t2_raw = 20.0  # Valore fisso per test
 
-            # 2. Aggiornamento immediato del dizionario
-            channels["ch1"]["temp"] = t1
-            channels["ch2"]["temp"] = t2
+            if t1_raw is not None:
+                history_ch1.append(t1_raw)
+            if t2_raw is not None:
+                history_ch2.append(t2_raw)
+
+            # Procediamo al controllo del relè quando abbiamo 5 campioni
+            if len(history_ch1) < 5:
+                time.sleep(0.2)
+                continue
+
+            # Media dei 5 campioni
+            t1 = sum(history_ch1) / len(history_ch1)
+            t2 = sum(history_ch2) / len(history_ch2)
+
+            # 2. Aggiornamento canali per il frontend
+            channels["ch1"]["temp"] = round(t1, 2)
+            channels["ch2"]["temp"] = round(t2, 2)
 
             now = datetime.now()
 
@@ -160,14 +178,14 @@ def control_loop():
                     if temp < current_setpoint - h:
                         ch["relay"].on()
                         ch["output_on"] = True
-                    elif temp >= current_setpoint:
+                    elif temp >= current_setpoint + h:
                         ch["relay"].off()
                         ch["output_on"] = False
                 elif ch["mode"] == "cooling":
                     if temp > current_setpoint + h:
                         ch["relay"].on()
                         ch["output_on"] = True
-                    elif temp <= current_setpoint:
+                    elif temp <= current_setpoint - h:
                         ch["relay"].off()
                         ch["output_on"] = False
 
