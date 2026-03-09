@@ -5,6 +5,7 @@ import threading
 import time
 from datetime import datetime
 from tkcalendar import Calendar
+import logging
 
 # Cambia con l'IP reale del Raspberry Pi
 RASPBERRY_IP = "192.168.68.128" # "192.168.1.31"
@@ -18,6 +19,16 @@ ctk.set_default_color_theme("dark-blue")
 
 APP_FONT = "Bahnschrift"
 GLOBAL_FONT = (APP_FONT, 14)
+
+# Configurazione Logger
+logging.basicConfig(
+    filename='log.txt',
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+
+logging.info("=== Applicazione Termostato Avviata ===")
 
 # --- Numeric keypad ---
 _open_keypad_refs = {}
@@ -278,6 +289,7 @@ class ChannelFrame(ctk.CTkFrame):
 
             if payload:
                 requests.post(API_SETTINGS, json=payload, timeout=2)
+                logging.info(f"Invio parametri: {payload}")
         except Exception as e:
             print(f"Errore update CH{self.ch_num}: {e}")
 
@@ -533,7 +545,10 @@ class ChannelFrame(ctk.CTkFrame):
                 ch_id = f"ch{channel}"
                 url = f"http://{RASPBERRY_IP}:5000/schedule/{ch_id}"
                 requests.post(url, json={"schedule": plan_data}, timeout=2)
+                # Log scheduling
+                logging.info(f"Inviato nuovo SCHEDULING per Canale {channel}: {plan_data}")
             except Exception as e:
+                logging.info(f"Errore nell'incio dello SCHEDULING per Canale {channel}: {e}")
                 print(f"Errore invio schedule: {e}")
 
             popup.destroy()
@@ -631,11 +646,18 @@ class ThermostatApp(ctk.CTk):
                 ch.relay_label.configure(text="Relay: --")
 
     def update_loop(self):
+        was_connected = True  # Variabile d'appoggio per log
+        last_relay = {"CH1": None, "CH2": None}
+
         while True:
             try:
                 r = requests.get(API_STATUS, timeout=2)
                 r.raise_for_status()
                 data = r.json()
+
+                if not was_connected:
+                    logging.info("Comunicazione con Backend stabilita.")
+                    was_connected = True
 
                 self.set_connection_state(True)
 
@@ -662,6 +684,17 @@ class ThermostatApp(ctk.CTk):
                 relay_state2 = "ON" if ch2_data.get("relay", False) else "OFF"
                 self.ch2.relay_label.configure(text=f"Relay: {relay_state2}")
 
+                # Log cambio di stato relè
+                for ch_name in ["CH1", "CH2"]:
+                    ch_info = channels_data.get(ch_name, {})
+                    temp = ch_info.get('temperature', '--')
+                    sp = ch_info.get('setpoint', '--')
+                    relay_on = ch_info.get('relay', False)
+                    if last_relay[ch_name] is not None and last_relay[ch_name] != relay_on:
+                        stato_testo = "ON" if relay_on else "OFF"
+                        logging.info(f"[{ch_name}] Cambio stato Relè: {stato_testo} (Temp: {temp}°C, Setpoint: {sp}°C)")
+                    last_relay[ch_name] = relay_on
+
                 # Disabling setpoint ctrl if scheduling enabled
                 if ch1_data.get("schedule_enabled"):
                     self.ch1.sp_entry.configure(state="disabled")
@@ -672,7 +705,10 @@ class ThermostatApp(ctk.CTk):
                 else:
                     self.ch2.sp_entry.configure(state="normal")
 
-            except Exception:
+            except Exception as e:
+                if was_connected:
+                    logging.error(f"Perdita comunicazione con Backend: {e}")
+                    was_connected = False
                 self.set_connection_state(False)
 
             time.sleep(1)

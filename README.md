@@ -1,7 +1,6 @@
 _______________________________________________________________________________________________
 
 # Dual Channel Raspberry Pi Thermostat Controller
-
 _______________________________________________________________________________________________
 
 
@@ -35,7 +34,9 @@ ________________________________________________________________________________
 -   MAX6675 thermocouple support
 -   SSR relay control
 -   Real-time monitoring
+-	Temperature scheduling
 -   Safe shutdown endpoint
+-   Events Logger
 
 _______________________________________________________________________________________________
 
@@ -73,10 +74,11 @@ Frontend (Desktop)
 -   customtkinter
 -   requests
 -   CTkMessagebox
+-	tkcalendar
 
 Install dependencies:
 
-    pip install customtkinter requests CTkMessagebox
+    pip install customtkinter requests CTkMessagebox tkcalendar
 
 - Properly rated power wiring and protection
 
@@ -94,6 +96,6 @@ ________________________________________________________________________________
 
 ## LICENSE
 
-Provided for educational and experimental purposes. Use at your own
-risk.
+Provided for educational and experimental purposes.
+Use at your own risk.
 
