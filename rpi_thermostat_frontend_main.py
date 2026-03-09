@@ -7,7 +7,7 @@ from datetime import datetime
 from tkcalendar import Calendar
 
 # Cambia con l'IP reale del Raspberry Pi
-RASPBERRY_IP = "192.168.1.31" #"192.168.68.128"
+RASPBERRY_IP = "192.168.68.128" # "192.168.1.31"
 API_STATUS = f"http://{RASPBERRY_IP}:5000/status"
 API_SETTINGS = f"http://{RASPBERRY_IP}:5000/settings"
 API_MANUAL = f"http://{RASPBERRY_IP}:5000/manual"
@@ -644,9 +644,9 @@ class ThermostatApp(ctk.CTk):
 
                 #
                 ch1_data = channels_data.get("CH1", {})
-                self.ch1.temp_label.configure(text=f"Temperatura: {ch1_data.get('temperature', '--')} °C")
-                self.ch1.sp_curr_label.configure(text=f"Setpoint attuale: {ch1_data.get('setpoint', '--')}")
-                self.ch1.hyst_curr_label.configure(text=f"Isteresi attuale: {ch1_data.get('hysteresis', '--')}")
+                self.ch1.temp_label.configure(text=f"Temperatura: {round(ch1_data.get('temperature', '--'), 1)} °C")
+                self.ch1.sp_curr_label.configure(text=f"Setpoint attuale: {ch1_data.get('setpoint', '--')} °C")
+                self.ch1.hyst_curr_label.configure(text=f"Isteresi attuale: {ch1_data.get('hysteresis', '--')} °C")
                 mode_label = "HEATING" if ch1_data.get("mode") == 1 else "COOLING"
                 self.ch1.mode_curr_label.configure(text=f"Modalità: {mode_label}")
                 relay_state = "ON" if ch1_data.get("relay", False) else "OFF"
@@ -654,9 +654,9 @@ class ThermostatApp(ctk.CTk):
 
                 # CH2
                 ch2_data = channels_data.get("CH2", {})
-                self.ch2.temp_label.configure(text=f"Temperatura: {ch2_data.get('temperature', '--')} °C")
-                self.ch2.sp_curr_label.configure(text=f"Setpoint attuale: {ch2_data.get('setpoint', '--')}")
-                self.ch2.hyst_curr_label.configure(text=f"Isteresi attuale: {ch2_data.get('hysteresis', '--')}")
+                self.ch2.temp_label.configure(text=f"Temperatura: {round(ch2_data.get('temperature', '--'), 1)} °C")
+                self.ch2.sp_curr_label.configure(text=f"Setpoint attuale: {ch2_data.get('setpoint', '--')} °C")
+                self.ch2.hyst_curr_label.configure(text=f"Isteresi attuale: {ch2_data.get('hysteresis', '--')} °C")
                 mode_label2 = "HEATING" if ch2_data.get("mode") == 1 else "COOLING"
                 self.ch2.mode_curr_label.configure(text=f"Modalità: {mode_label2}")
                 relay_state2 = "ON" if ch2_data.get("relay", False) else "OFF"
