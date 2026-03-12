@@ -18,6 +18,7 @@ ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("dark-blue")
 
 APP_FONT = "Bahnschrift"
+CALENDAR_FONT = "Bahnschrift 24"
 GLOBAL_FONT = (APP_FONT, 14)
 
 # Configurazione Logger
@@ -418,7 +419,7 @@ class ChannelFrame(ctk.CTkFrame):
             for i in range(len(parsed_rows)):
                 start_dt, end_dt = parsed_rows[i]
 
-                if end_dt <= start_dt:
+                if end_dt < start_dt:
                     valid = False
                     mark_row_invalid(i)
 
@@ -469,7 +470,7 @@ class ChannelFrame(ctk.CTkFrame):
                     cal_popup.transient(popup)
                     cal_popup.grab_set()
 
-                    cal = Calendar(cal_popup, date_pattern="dd/mm/yyyy")
+                    cal = Calendar(cal_popup, date_pattern="dd/mm/yyyy", font=CALENDAR_FONT, locale='it_IT')
                     cal.pack(pady=10, expand=True, fill="both")
 
                     def confirm_date():
@@ -561,6 +562,7 @@ class ChannelFrame(ctk.CTkFrame):
         )
         confirm_button.pack(pady=20)
 
+    '''
     def open_calendar(self, target_entry):
         cal_win = ctk.CTkToplevel(self)
         cal_win.title("Seleziona una data")
@@ -578,6 +580,7 @@ class ChannelFrame(ctk.CTkFrame):
             cal_win.destroy()
 
         ctk.CTkButton(cal_win, text="OK", command=confirm).pack(pady=5)
+    '''
 
 # --- Main App ---
 class ThermostatApp(ctk.CTk):
@@ -593,7 +596,7 @@ class ThermostatApp(ctk.CTk):
         self.connected = False
         self.connection_label = ctk.CTkLabel(
             self,
-            text="RASPBERRY SCOLLEGATA",
+            text="TERMOSTATO OFFLINE",
             font=(APP_FONT, 25, "bold"),
             text_color="red"
         )
@@ -608,16 +611,6 @@ class ThermostatApp(ctk.CTk):
         self.ch1.pack(side="left", fill="both", expand=True, padx=10, pady=10)
         self.ch2 = ChannelFrame(self.channels_frame, 2, title="CHANNEL 2")
         self.ch2.pack(side="left", fill="both", expand=True, padx=10, pady=10)
-
-        '''
-        # Pulsanti manuali ON/OFF centrali
-        manual_frame = ctk.CTkFrame(self, fg_color="transparent")
-        manual_frame.pack(fill="x", padx=20, pady=10)
-        self.on_btn = ctk.CTkButton(manual_frame, text="ON", command=lambda: self.manual(True), font=GLOBAL_FONT)
-        self.on_btn.pack(side="left", padx=10)
-        self.off_btn = ctk.CTkButton(manual_frame, text="OFF", command=lambda: self.manual(False), font=GLOBAL_FONT)
-        self.off_btn.pack(side="left", padx=10)
-        '''
 
         # Pulsante spegni
         self.shutdown_btn = ctk.CTkButton(self, text="Spegni Termostato", command=self.shutdown_rpi, font=GLOBAL_FONT)
