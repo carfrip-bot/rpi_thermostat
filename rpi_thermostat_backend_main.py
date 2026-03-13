@@ -33,6 +33,9 @@ DEFAULT_CONFIG = {
     }
 }
 
+CH1_TEMP_OFFSET = -1.0
+CH2_TEMP_OFFSET = -1.0
+
 def load_config():
     if not os.path.exists(CONFIG_FILE):
         save_config(DEFAULT_CONFIG)
@@ -131,8 +134,8 @@ def control_loop():
                 continue
 
             # Media dei 5 campioni
-            t1 = sum(history_ch1) / len(history_ch1)
-            t2 = sum(history_ch2) / len(history_ch2)
+            t1 = (sum(history_ch1) / len(history_ch1)) + CH1_TEMP_OFFSET
+            t2 = (sum(history_ch2) / len(history_ch2)) + CH2_TEMP_OFFSET
 
             # 2. Aggiornamento canali per il frontend
             channels["ch1"]["temp"] = round(t1, 2)
