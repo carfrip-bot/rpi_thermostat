@@ -274,9 +274,29 @@ class ChannelFrame(ctk.CTkFrame):
 
     # --- SETTINGS API ---
     def update_settings(self, param=None):
+        prefix = f"CH{self.ch_num}_"
+
+        # Se si sta cambiando il setpoint e c'è un piano attivo, si chiede conferma
+        if param == "setpoint" and getattr(self, "is_planning_active", False):
+            msg = CTkMessagebox(
+                title="Conferma Setpoint Diretto",
+                message=f"È attivo un planning su {prefix[:-1]}.\n"
+                        f"Vuoi procedere?",
+                icon="warning",
+                option_1="Annulla",
+                option_2="Si, procedi",
+                width=450,
+                height=180,
+                button_height=30,
+                button_width=110,
+                corner_radius=10,
+                font=(APP_FONT, 14),
+                justify="center"
+            )
+            if msg.get() == "Annulla":
+                return
         try:
             payload = {}
-            prefix = f"CH{self.ch_num}_"
 
             if param == "setpoint" or param is None:
                 payload[prefix + "setpoint"] = float(self.sp_entry.get())
@@ -290,6 +310,7 @@ class ChannelFrame(ctk.CTkFrame):
 
             if payload:
                 requests.post(API_SETTINGS, json=payload, timeout=2)
+                logging.info(f"Invio parametri: {payload}")
                 logging.info(f"Invio parametri: {payload}")
         except Exception as e:
             print(f"Errore update CH{self.ch_num}: {e}")
@@ -688,15 +709,13 @@ class ThermostatApp(ctk.CTk):
                         logging.info(f"[{ch_name}] Cambio stato Relè: {stato_testo} (Temp: {temp}°C, Setpoint: {sp}°C)")
                     last_relay[ch_name] = relay_on
 
-                # Disabling setpoint ctrl if scheduling enabled
-                if ch1_data.get("schedule_enabled"):
-                    self.ch1.sp_entry.configure(state="disabled")
-                else:
-                    self.ch1.sp_entry.configure(state="normal")
-                if ch2_data.get("schedule_enabled"):
-                    self.ch2.sp_entry.configure(state="disabled")
-                else:
-                    self.ch2.sp_entry.configure(state="normal")
+                self.ch1.is_planning_active = ch1_data.get("schedule_enabled", False)
+                self.ch2.is_planning_active = ch2_data.get("schedule_enabled", False)
+
+                self.ch1.sp_entry.configure(state="normal", fg_color=("#F9F9FA",
+                                                                      "#343638") if not self.ch1.is_planning_active else "#3b3b00")
+                self.ch2.sp_entry.configure(state="normal", fg_color=("#F9F9FA",
+                                                                      "#343638") if not self.ch2.is_planning_active else "#3b3b00")
 
             except Exception as e:
                 if was_connected:
