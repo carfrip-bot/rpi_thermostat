@@ -8,7 +8,7 @@ from tkcalendar import Calendar
 import logging
 
 # Cambia con l'IP reale del Raspberry Pi
-RASPBERRY_IP = "192.168.68.128" # "192.168.1.31"
+RASPBERRY_IP = "192.168.68.131" # "192.168.1.31"
 API_STATUS = f"http://{RASPBERRY_IP}:5000/status"
 API_SETTINGS = f"http://{RASPBERRY_IP}:5000/settings"
 API_MANUAL = f"http://{RASPBERRY_IP}:5000/manual"
@@ -143,13 +143,23 @@ class ChannelFrame(ctk.CTkFrame):
         self.header = ctk.CTkFrame(self, fg_color=header_fg, corner_radius=10)
         self.header.pack(fill="x", padx=0, pady=(0, 6))
 
+        # --- Titolo a sinistra ---
         self.header_label = ctk.CTkLabel(
             self.header,
             text=header_text,
-            font=(APP_FONT, 18, "bold"),
+            font=(APP_FONT, 20, "bold"),
             text_color=header_text_color
         )
         self.header_label.pack(side="left", padx=12, pady=6)
+
+        # --- Temperatura a destra ---
+        self.header_temp_label = ctk.CTkLabel(
+            self.header,
+            text="-- °C",
+            font=(APP_FONT, 24, "bold"),
+            #text_color="#33ccff"
+        )
+        self.header_temp_label.pack(side="right", padx=12, pady=6)
 
         # --- Corpo ---
         self.body = ctk.CTkFrame(self, fg_color="transparent")
@@ -253,8 +263,8 @@ class ChannelFrame(ctk.CTkFrame):
         self.update_manual_buttons_state()
 
         # --- Colonna destra: stato ---
-        self.temp_label = ctk.CTkLabel(self.right_col, text="Temperatura: -- °C", font=label_font)
-        self.temp_label.pack(pady=5)
+        #self.temp_label = ctk.CTkLabel(self.right_col, text="Temperatura: -- °C", font=label_font)
+        #self.temp_label.pack(pady=5)
 
         self.sp_curr_label = ctk.CTkLabel(self.right_col, text="Setpoint attuale: --", font=label_font)
         self.sp_curr_label.pack(pady=5)
@@ -653,7 +663,8 @@ class ThermostatApp(ctk.CTk):
 
             # UI Parameters Reset
             for ch in [self.ch1, self.ch2]:
-                ch.temp_label.configure(text="Temperatura: -- °C")
+                #ch.temp_label.configure(text="Temperatura: -- °C")
+                ch.header_temp_label.configure(text="-- °C")
                 ch.sp_curr_label.configure(text="Setpoint attuale: --")
                 ch.hyst_curr_label.configure(text="Isteresi attuale: --")
                 ch.mode_curr_label.configure(text="Modalità: --")
@@ -678,9 +689,11 @@ class ThermostatApp(ctk.CTk):
                 # Estrai il blocco 'channels' dal JSON
                 channels_data = data.get("channels", {})
 
-                #
+                # CH1
                 ch1_data = channels_data.get("CH1", {})
-                self.ch1.temp_label.configure(text=f"Temperatura: {round(ch1_data.get('temperature', '--'), 1)} °C")
+                #self.ch1.temp_label.configure(text=f"Temperatura: {round(ch1_data.get('temperature', '--'), 1)} °C")
+                temp1 = round(ch1_data.get('temperature', 0.0), 1)
+                self.ch1.header_temp_label.configure(text=f"{temp1} °C")
                 self.ch1.sp_curr_label.configure(text=f"Setpoint attuale: {ch1_data.get('setpoint', '--')} °C")
                 self.ch1.hyst_curr_label.configure(text=f"Isteresi attuale: {ch1_data.get('hysteresis', '--')} °C")
                 mode_label = "HEATING" if ch1_data.get("mode") == 1 else "COOLING"
@@ -690,7 +703,9 @@ class ThermostatApp(ctk.CTk):
 
                 # CH2
                 ch2_data = channels_data.get("CH2", {})
-                self.ch2.temp_label.configure(text=f"Temperatura: {round(ch2_data.get('temperature', '--'), 1)} °C")
+                temp2 = round(ch2_data.get('temperature', 0.0), 1)
+                self.ch2.header_temp_label.configure(text=f"{temp2} °C")
+                #self.ch2.temp_label.configure(text=f"Temperatura: {round(ch2_data.get('temperature', '--'), 1)} °C")
                 self.ch2.sp_curr_label.configure(text=f"Setpoint attuale: {ch2_data.get('setpoint', '--')} °C")
                 self.ch2.hyst_curr_label.configure(text=f"Isteresi attuale: {ch2_data.get('hysteresis', '--')} °C")
                 mode_label2 = "HEATING" if ch2_data.get("mode") == 1 else "COOLING"
