@@ -167,22 +167,27 @@ class ChannelFrame(ctk.CTkFrame):
         self.header = ctk.CTkFrame(self, fg_color=header_fg, corner_radius=10)
         self.header.pack(fill="x", padx=0, pady=(0, 6))
 
+        # Creiamo un frame interno per centrare tutto il contenuto
+        self.header_content = ctk.CTkFrame(self.header, fg_color="transparent")
+        self.header_content.pack(expand=True)  # expand=True centra il frame nel genitore
+
         # --- Channel name on the left ---
         self.header_label = ctk.CTkLabel(
-            self.header,
-            text=header_text,
+            self.header_content,
+            text=f"{header_text}   •   ", # Aggiungiamo un separatore visivo
             font=(APP_FONT, 20, "bold"),
-            text_color=header_text_color
+            text_color="#FFF4B0"
         )
-        self.header_label.pack(side="left", padx=12, pady=6)
+        self.header_label.pack(side="left", pady=6)
 
         # --- Current Temperature on the right ---
         self.header_temp_label = ctk.CTkLabel(
-            self.header,
-            text="-- °C",
-            font=(APP_FONT, 24, "bold"),
+            self.header_content,
+            text="10.0 °C",
+            font=(APP_FONT, 20, "bold"),
+            text_color="#FFF4B0"
         )
-        self.header_temp_label.pack(side="right", padx=12, pady=6)
+        self.header_temp_label.pack(side="left", pady=6)
 
         # --- Body ---
         self.body = ctk.CTkFrame(self, fg_color="transparent")
