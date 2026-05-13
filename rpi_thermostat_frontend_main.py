@@ -183,7 +183,7 @@ class ChannelFrame(ctk.CTkFrame):
         # --- Current Temperature on the right ---
         self.header_temp_label = ctk.CTkLabel(
             self.header_content,
-            text="10.0 °C",
+            text="-- °C",
             font=(APP_FONT, 20, "bold"),
             text_color="#FFF4B0"
         )
