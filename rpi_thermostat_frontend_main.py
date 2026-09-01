@@ -12,7 +12,6 @@ import os
 # --- MACHINE DATA LOADING FROM FILE ---
 def load_machine_data():
     settings_file = "machine_data.json"
-    # Valori di backup se il file non esiste
     machine_data = {
         "raspberry_ip": "192.168.68.131",
         "status_timeout": 10.0
@@ -29,7 +28,6 @@ def load_machine_data():
 
 machine_data = load_machine_data()
 
-# Raspberry Pi Data
 RASPBERRY_IP = machine_data["raspberry_ip"]
 API_STATUS = f"http://{RASPBERRY_IP}:5000/status"
 API_SETTINGS = f"http://{RASPBERRY_IP}:5000/settings"
@@ -45,7 +43,6 @@ APP_FONT = "Bahnschrift"
 CALENDAR_FONT = "Bahnschrift 24"
 GLOBAL_FONT = (APP_FONT, 14)
 
-# Configurazione Logger
 logging.basicConfig(
     filename='log.txt',
     level=logging.INFO,
@@ -55,7 +52,6 @@ logging.basicConfig(
 
 logging.info("=== Applicazione Termostato Avviata ===")
 
-# --- Numeric keypad ---
 _open_keypad_refs = {}
 
 def open_numeric_pad(parent, entry_widget, allow_decimal=True, title="Numeric keypad", keep_previous=False, on_ok=None):
@@ -111,7 +107,6 @@ def open_numeric_pad(parent, entry_widget, allow_decimal=True, title="Numeric ke
         ("1", lambda: add_char("1")), ("2", lambda: add_char("2")), ("3", lambda: add_char("3")),
         (".", lambda: add_char(".")), ("0", lambda: add_char("0")), ("←", backspace),
     ]
-    rows = 4
     cols = 3
     for idx, (txt, cmd) in enumerate(buttons):
         r = idx // cols
@@ -125,8 +120,8 @@ def open_numeric_pad(parent, entry_widget, allow_decimal=True, title="Numeric ke
     bottom.pack(fill="x", padx=12, pady=(4, 12))
     ctk.CTkButton(bottom, text="Clear", command=clear_all, font=(APP_FONT, 20), height=40).pack(side="left", expand=True, fill="x", padx=6, pady=6)
     ctk.CTkButton(bottom, text="Cancel", command=do_cancel, font=(APP_FONT, 20), height=40).pack(side="left", expand=True, fill="x", padx=6, pady=6)
-    ctk.CTkButton(bottom, text="OK", command=do_ok, font=(APP_FONT, 20), height=40).pack(side="left", expand=True,
-                                                                                         fill="x", padx=6, pady=6)
+    ctk.CTkButton(bottom, text="OK", command=do_ok, font=(APP_FONT, 20), height=40).pack(side="left", expand=True, fill="x", padx=6, pady=6)
+
     def on_close(event=None):
         try:
             _open_keypad_refs.pop(key, None)
@@ -162,25 +157,21 @@ class ChannelFrame(ctk.CTkFrame):
         self.ch_num = ch_num
         label_font = (APP_FONT, 16)
 
-        # --- Header (title bar) ---
         header_text = title if title is not None else f"CH{ch_num}"
         self.header = ctk.CTkFrame(self, fg_color=header_fg, corner_radius=10)
         self.header.pack(fill="x", padx=0, pady=(0, 6))
 
-        # Creiamo un frame interno per centrare tutto il contenuto
         self.header_content = ctk.CTkFrame(self.header, fg_color="transparent")
-        self.header_content.pack(expand=True)  # expand=True centra il frame nel genitore
+        self.header_content.pack(expand=True)
 
-        # --- Channel name on the left ---
         self.header_label = ctk.CTkLabel(
             self.header_content,
-            text=f"{header_text}   •   ", # Aggiungiamo un separatore visivo
+            text=f"{header_text}   •   ",
             font=(APP_FONT, 20, "bold"),
             text_color="#FFF4B0"
         )
         self.header_label.pack(side="left", pady=6)
 
-        # --- Current Temperature on the right ---
         self.header_temp_label = ctk.CTkLabel(
             self.header_content,
             text="-- °C",
@@ -189,18 +180,15 @@ class ChannelFrame(ctk.CTkFrame):
         )
         self.header_temp_label.pack(side="left", pady=6)
 
-        # --- Body ---
         self.body = ctk.CTkFrame(self, fg_color="transparent")
         self.body.pack(fill="both", expand=True, padx=8, pady=(0, 8))
 
-        # Columns
         self.left_col = ctk.CTkFrame(self.body, fg_color="transparent")
         self.left_col.pack(side="left", fill="both", expand=True, padx=10, pady=10)
 
         self.right_col = ctk.CTkFrame(self.body, fg_color="transparent")
         self.right_col.pack(side="right", fill="both", expand=True, padx=10, pady=10)
 
-        # --- Left column: parameters ---
         self.sp_label = ctk.CTkLabel(self.left_col, text=f"Setpoint CH{ch_num} (°C):", font=GLOBAL_FONT)
         self.sp_label.grid(row=0, column=0, sticky="w", padx=5, pady=5)
 
@@ -246,7 +234,6 @@ class ChannelFrame(ctk.CTkFrame):
             font=GLOBAL_FONT
         ).grid(row=2, column=2, padx=5, pady=5)
 
-        # --- Checkbox manual override ---
         self.manual_enable_var = ctk.IntVar(value=0)
         self.manual_cb = ctk.CTkCheckBox(
             self.left_col,
@@ -257,7 +244,6 @@ class ChannelFrame(ctk.CTkFrame):
         )
         self.manual_cb.grid(row=3, column=0, columnspan=3, sticky="w", padx=5, pady=(10, 5))
 
-        # --- ON/OFF Buttons ---
         btns_frame = ctk.CTkFrame(self.left_col, fg_color="transparent")
         btns_frame.grid(row=4, column=0, columnspan=3, sticky="w", padx=5, pady=(5, 5))
 
@@ -287,12 +273,7 @@ class ChannelFrame(ctk.CTkFrame):
         )
         self.plan_btn.grid(row=4, column=2, columnspan=3, pady=10)
 
-        # Disabled until override is activated
         self.update_manual_buttons_state()
-
-        # --- Right column: status ---
-        #self.temp_label = ctk.CTkLabel(self.right_col, text="Temperatura: -- °C", font=label_font)
-        #self.temp_label.pack(pady=5)
 
         self.sp_curr_label = ctk.CTkLabel(self.right_col, text="Setpoint attuale: --", font=label_font)
         self.sp_curr_label.pack(pady=5)
@@ -306,20 +287,16 @@ class ChannelFrame(ctk.CTkFrame):
         self.relay_label = ctk.CTkLabel(self.right_col, text="Relay: --", font=label_font)
         self.relay_label.pack(pady=5)
 
-        # Keypad bind
         self.sp_entry.bind("<Button-1>", lambda e: open_numeric_pad(self, self.sp_entry))
         self.hyst_entry.bind("<Button-1>", lambda e: open_numeric_pad(self, self.hyst_entry))
 
-    # --- SETTINGS API ---
     def update_settings(self, param=None):
         prefix = f"CH{self.ch_num}_"
 
-        # If the setpoint is changed while a plan is active, confirmation is required.
         if param == "setpoint" and getattr(self, "is_planning_active", False):
             msg = CTkMessagebox(
                 title="Conferma Setpoint Diretto",
-                message=f"È attivo un planning su {prefix[:-1]}.\n"
-                        f"Vuoi procedere?",
+                message=f"È attivo un planning su {prefix[:-1]}.\nVuoi procedere?",
                 icon="warning",
                 option_1="Annulla",
                 option_2="Si, procedi",
@@ -349,15 +326,12 @@ class ChannelFrame(ctk.CTkFrame):
             if payload:
                 requests.post(API_SETTINGS, json=payload, timeout=2)
                 logging.info(f"Invio parametri: {payload}")
-                logging.info(f"Invio parametri: {payload}")
         except Exception as e:
             print(f"Errore update CH{self.ch_num}: {e}")
 
-    # --- TOGGLE OVERRIDE ---
     def manual_enable_toggle(self):
         try:
             val = bool(self.manual_enable_var.get())
-            # Invoke the proper endpoint to enable global manual mode.
             requests.post(
                 API_MANUAL,
                 json={"manual": val},
@@ -374,10 +348,8 @@ class ChannelFrame(ctk.CTkFrame):
         self.on_btn.configure(state=state)
         self.off_btn.configure(state=state)
 
-    # --- MANUAL COMMAND ON/OFF ---
     def manual_set(self, state: bool):
         try:
-            # Builds the specific URL for the channel (e.g., /manual/ch1).
             ch_id = f"ch{self.ch_num}"
             requests.post(
                 f"{API_MANUAL}/{ch_id}",
@@ -391,15 +363,13 @@ class ChannelFrame(ctk.CTkFrame):
         channel = self.ch_num
         popup = ctk.CTkToplevel(self)
         popup.title(f"Pianificazione CH{channel}")
-        popup.geometry("600x650")
+        popup.geometry("650x650")
         center_window(popup)
         popup.lift()
         popup.focus_force()
         popup.grab_set()
         popup.attributes("-topmost", True)
         popup.after(200, lambda: popup.attributes("-topmost", False))
-
-        plan_data = []
 
         title_label = ctk.CTkLabel(popup, text=f"Pianificazione CH{channel}", font=("Arial", 18, "bold"))
         title_label.pack(pady=10)
@@ -428,7 +398,6 @@ class ChannelFrame(ctk.CTkFrame):
 
         entries = []
 
-        # -------- Placeholder helper --------
         def add_placeholder(entry, placeholder_text):
             entry.insert(0, placeholder_text)
             entry.configure(text_color="#888")
@@ -446,7 +415,6 @@ class ChannelFrame(ctk.CTkFrame):
             entry.bind("<FocusIn>", on_focus_in)
             entry.bind("<FocusOut>", on_focus_out)
 
-        # -------- Validation helpers --------
         def mark_row_invalid(index):
             row_frame = container.winfo_children()[index]
             for widget in row_frame.winfo_children():
@@ -468,10 +436,10 @@ class ChannelFrame(ctk.CTkFrame):
 
             for i, (start_var, end_var, _) in enumerate(entries):
                 try:
-                    start_dt = datetime.strptime(start_var.get(), "%d/%m/%Y")
-                    end_dt = datetime.strptime(end_var.get(), "%d/%m/%Y")
+                    start_dt = datetime.strptime(start_var.get(), "%d/%m/%Y %H:%M")
+                    end_dt = datetime.strptime(end_var.get(), "%d/%m/%Y %H:%M")
                     parsed_rows.append((start_dt, end_dt))
-                except:
+                except Exception:
                     valid = False
                     continue
 
@@ -494,7 +462,6 @@ class ChannelFrame(ctk.CTkFrame):
         def _on_var_change(name: str, index: str, mode: str) -> None:
             validate_plan()
 
-        # -------- Rebuild intervals --------
         def rebuild_intervals():
             for widget in container.winfo_children():
                 widget.destroy()
@@ -502,7 +469,7 @@ class ChannelFrame(ctk.CTkFrame):
 
             try:
                 count = int(count_var.get())
-            except:
+            except Exception:
                 return
 
             for i in range(count):
@@ -520,34 +487,59 @@ class ChannelFrame(ctk.CTkFrame):
                 end_var = ctk.StringVar()
                 setpoint_var = ctk.StringVar()
 
-                def open_calendar(d_var):
+                def open_calendar(d_var, is_end_interval=False):
                     cal_popup = ctk.CTkToplevel(popup)
-                    cal_popup.title("Seleziona una data")
-                    cal_popup.geometry("550x600")
+                    cal_popup.title("Seleziona data e ora")
+                    cal_popup.geometry("550x650")
                     center_window(cal_popup)
-                    cal_popup.minsize(550, 600)
+                    cal_popup.minsize(550, 650)
                     cal_popup.transient(popup)
                     cal_popup.grab_set()
 
                     cal = Calendar(cal_popup, date_pattern="dd/mm/yyyy", font=CALENDAR_FONT, locale='it_IT')
                     cal.pack(pady=10, expand=True, fill="both")
 
+                    time_frame = ctk.CTkFrame(cal_popup, fg_color="transparent")
+                    time_frame.pack(pady=10)
+
+                    ctk.CTkLabel(time_frame, text="Ora:", font=GLOBAL_FONT).pack(side="left", padx=5)
+                    hours_var = ctk.StringVar(value="23" if is_end_interval else "00")
+                    hours_menu = ctk.CTkOptionMenu(
+                        time_frame,
+                        values=[f"{h:02d}" for h in range(24)],
+                        variable=hours_var,
+                        width=70,
+                        font=GLOBAL_FONT
+                    )
+                    hours_menu.pack(side="left", padx=5)
+
+                    ctk.CTkLabel(time_frame, text="Minuti:", font=GLOBAL_FONT).pack(side="left", padx=5)
+                    mins_var = ctk.StringVar(value="59" if is_end_interval else "00")
+                    mins_menu = ctk.CTkOptionMenu(
+                        time_frame,
+                        values=[f"{m:02d}" for m in range(60)],
+                        variable=mins_var,
+                        width=70,
+                        font=GLOBAL_FONT
+                    )
+                    mins_menu.pack(side="left", padx=5)
+
                     def confirm_date():
-                        d_var.set(cal.get_date())
+                        d_var.set(f"{cal.get_date()} {hours_var.get()}:{mins_var.get()}")
                         cal_popup.destroy()
 
-                    confirm_btn = ctk.CTkButton(cal_popup, text="OK", command=confirm_date)
+                    confirm_btn = ctk.CTkButton(cal_popup, text="OK", command=confirm_date, font=GLOBAL_FONT)
                     confirm_btn.pack(pady=10)
 
                 start_entry = ctk.CTkEntry(row, textvariable=start_var)
                 start_entry.grid(row=0, column=1, padx=5, sticky="ew")
-                add_placeholder(start_entry, "Data iniziale")
-                start_entry.bind("<Button-1>", lambda e, dv=start_var: open_calendar(dv))
+                add_placeholder(start_entry, "Inizio (gg/mm/aaaa hh:mm)")
+                start_entry.bind("<Button-1>", lambda e, dv=start_var: open_calendar(dv, is_end_interval=False))
 
                 end_entry = ctk.CTkEntry(row, textvariable=end_var)
                 end_entry.grid(row=0, column=2, padx=5, sticky="ew")
-                add_placeholder(end_entry, "Data finale")
-                end_entry.bind("<Button-1>", lambda e, dv=end_var: open_calendar(dv))
+                add_placeholder(end_entry, "Fine (gg/mm/aaaa hh:mm)")
+                end_entry.bind("<Button-1>", lambda e, dv=end_var: open_calendar(dv, is_end_interval=True))
 
                 start_var.trace_add("write", _on_var_change)
                 end_var.trace_add("write", _on_var_change)
@@ -570,7 +562,6 @@ class ChannelFrame(ctk.CTkFrame):
 
         rebuild_intervals()
 
-        # -------- Confirm --------
         def confirm_plan():
             plan_data = []
 
@@ -583,29 +574,20 @@ class ChannelFrame(ctk.CTkFrame):
                     continue
 
                 try:
-                    # Day-start: h 00:00:00
-                    start_dt = datetime.strptime(start_str, "%d/%m/%Y").replace(
-                        hour=0, minute=0, second=0
-                    )
-                    # Day-end: h 23:59:59
-                    end_dt = datetime.strptime(end_str, "%d/%m/%Y").replace(
-                        hour=23, minute=59, second=59
-                    )
+                    start_dt = datetime.strptime(start_str, "%d/%m/%Y %H:%M")
+                    end_dt = datetime.strptime(end_str, "%d/%m/%Y %H:%M")
                     setpoint = float(sp_str)
 
                     if start_dt <= end_dt:
-                        # The backend requires a list of [start_iso, end_iso, setpoint].
                         plan_data.append([start_dt.isoformat(), end_dt.isoformat(), setpoint])
                 except Exception as e:
                     print(f"Errore parsing plan: {e}")
                     continue
 
-            # Send the data to the backend (even if empty, to reset the plan if all intervals are removed).
             try:
                 ch_id = f"ch{channel}"
                 url = f"http://{RASPBERRY_IP}:5000/schedule/{ch_id}"
                 requests.post(url, json={"schedule": plan_data}, timeout=2)
-                # Log scheduling
                 logging.info(f"Inviato nuovo SCHEDULING per Canale {channel}: {plan_data}")
             except Exception as e:
                 logging.info(f"Errore nell'invio dello SCHEDULING per Canale {channel}: {e}")
@@ -631,7 +613,6 @@ class ThermostatApp(ctk.CTk):
         self.update_msg = ctk.CTkLabel(self, text="", font=GLOBAL_FONT, text_color="green")
         self.update_msg.pack(pady=5)
 
-        # RPI Connection Status
         self.connected = False
         self.connection_label = ctk.CTkLabel(
             self,
@@ -641,21 +622,17 @@ class ThermostatApp(ctk.CTk):
         )
         self.connection_label.pack(pady=5)
 
-        # Channels containers
         self.channels_frame = ctk.CTkFrame(self, fg_color="transparent")
         self.channels_frame.pack(fill="both", expand=True, padx=20, pady=10)
 
-        # Channels
         self.ch1 = ChannelFrame(self.channels_frame, 1, title="CHANNEL 1")
         self.ch1.pack(side="left", fill="both", expand=True, padx=10, pady=10)
         self.ch2 = ChannelFrame(self.channels_frame, 2, title="CHANNEL 2")
         self.ch2.pack(side="left", fill="both", expand=True, padx=10, pady=10)
 
-        # RPI Shutdown button
         self.shutdown_btn = ctk.CTkButton(self, text="Spegni Termostato", command=self.shutdown_rpi, font=(APP_FONT, 18))
         self.shutdown_btn.pack(side="bottom", pady=10)
 
-        # Status update loop start
         threading.Thread(target=self.update_loop, daemon=True).start()
 
     def set_connection_state(self, state: bool):
@@ -669,9 +646,7 @@ class ThermostatApp(ctk.CTk):
         else:
             self.connection_label.configure(text="TERMOSTATO OFFLINE", text_color="red")
 
-            # UI Parameters Reset
             for ch in [self.ch1, self.ch2]:
-                #ch.temp_label.configure(text="Temperatura: -- °C")
                 ch.header_temp_label.configure(text="-- °C")
                 ch.sp_curr_label.configure(text="Setpoint attuale: --")
                 ch.hyst_curr_label.configure(text="Isteresi attuale: --")
@@ -679,7 +654,7 @@ class ThermostatApp(ctk.CTk):
                 ch.relay_label.configure(text="Relay: --")
 
     def update_loop(self):
-        was_connected = True  # Logging helper variable
+        was_connected = True
         last_relay = {"CH1": None, "CH2": None}
 
         while True:
@@ -694,12 +669,10 @@ class ThermostatApp(ctk.CTk):
 
                 self.set_connection_state(True)
 
-                # Get 'channels' dataset from JSON
                 channels_data = data.get("channels", {})
 
                 # CH1
                 ch1_data = channels_data.get("CH1", {})
-                #self.ch1.temp_label.configure(text=f"Temperatura: {round(ch1_data.get('temperature', '--'), 1)} °C")
                 temp1 = round(ch1_data.get('temperature', 0.0), 1)
                 self.ch1.header_temp_label.configure(text=f"{temp1} °C")
                 self.ch1.sp_curr_label.configure(text=f"Setpoint attuale: {ch1_data.get('setpoint', '--')} °C")
@@ -713,7 +686,6 @@ class ThermostatApp(ctk.CTk):
                 ch2_data = channels_data.get("CH2", {})
                 temp2 = round(ch2_data.get('temperature', 0.0), 1)
                 self.ch2.header_temp_label.configure(text=f"{temp2} °C")
-                #self.ch2.temp_label.configure(text=f"Temperatura: {round(ch2_data.get('temperature', '--'), 1)} °C")
                 self.ch2.sp_curr_label.configure(text=f"Setpoint attuale: {ch2_data.get('setpoint', '--')} °C")
                 self.ch2.hyst_curr_label.configure(text=f"Isteresi attuale: {ch2_data.get('hysteresis', '--')} °C")
                 mode_label2 = "HEATING" if ch2_data.get("mode") == 1 else "COOLING"
@@ -721,7 +693,6 @@ class ThermostatApp(ctk.CTk):
                 relay_state2 = "ON" if ch2_data.get("relay", False) else "OFF"
                 self.ch2.relay_label.configure(text=f"Relay: {relay_state2}")
 
-                # Relays status change log
                 for ch_name in ["CH1", "CH2"]:
                     ch_info = channels_data.get(ch_name, {})
                     temp = ch_info.get('temperature', '--')
@@ -735,10 +706,8 @@ class ThermostatApp(ctk.CTk):
                 self.ch1.is_planning_active = ch1_data.get("schedule_enabled", False)
                 self.ch2.is_planning_active = ch2_data.get("schedule_enabled", False)
 
-                self.ch1.sp_entry.configure(state="normal", fg_color=("#F9F9FA",
-                                                                      "#343638") if not self.ch1.is_planning_active else "#3b3b00")
-                self.ch2.sp_entry.configure(state="normal", fg_color=("#F9F9FA",
-                                                                      "#343638") if not self.ch2.is_planning_active else "#3b3b00")
+                self.ch1.sp_entry.configure(state="normal", fg_color=("#F9F9FA", "#343638") if not self.ch1.is_planning_active else "#3b3b00")
+                self.ch2.sp_entry.configure(state="normal", fg_color=("#F9F9FA", "#343638") if not self.ch2.is_planning_active else "#3b3b00")
 
             except Exception as e:
                 if was_connected:
@@ -752,7 +721,7 @@ class ThermostatApp(ctk.CTk):
         try:
             requests.post(f"http://{RASPBERRY_IP}:5000/manual/ch1", json={"state": state}, timeout=2)
             requests.post(f"http://{RASPBERRY_IP}:5000/manual/ch2", json={"state": state}, timeout=2)
-        except:
+        except Exception:
             pass
 
     def shutdown_rpi(self):
@@ -760,7 +729,7 @@ class ThermostatApp(ctk.CTk):
             msg = CTkMessagebox(title="Conferma", message="Spegni RPi?", icon="warning", option_1="No", option_2="Sì")
             if msg.get() == "Sì":
                 requests.post(API_SHUTDOWN, timeout=2)
-        except:
+        except Exception:
             pass
 
 def main():
