@@ -416,10 +416,11 @@ class ChannelFrame(ctk.CTkFrame):
             entry.bind("<FocusOut>", on_focus_out)
 
         def mark_row_invalid(index):
-            row_frame = container.winfo_children()[index]
-            for widget in row_frame.winfo_children():
-                if isinstance(widget, ctk.CTkEntry):
-                    widget.configure(border_color="red")
+            if index < len(container.winfo_children()):
+                row_frame = container.winfo_children()[index]
+                for widget in row_frame.winfo_children():
+                    if isinstance(widget, ctk.CTkEntry):
+                        widget.configure(border_color="red")
 
         def reset_all_borders():
             default_border = ctk.ThemeManager.theme["CTkEntry"]["border_color"]
@@ -434,155 +435,56 @@ class ChannelFrame(ctk.CTkFrame):
 
             parsed_rows = []
 
-            for i, (start_var, end_var, _) in enumerate(entries):
+            for i, (start_var, sp_var) in enumerate(entries):
                 try:
                     start_dt = datetime.strptime(start_var.get(), "%d/%m/%Y %H:%M")
-                    end_dt = datetime.strptime(end_var.get(), "%d/%m/%Y %H:%M")
-                    parsed_rows.append((start_dt, end_dt))
+                    sp_val = float(sp_var.get())
+                    parsed_rows.append((start_dt, sp_val))
                 except Exception:
                     valid = False
                     continue
 
-            for i in range(len(parsed_rows)):
-                start_dt, end_dt = parsed_rows[i]
+            if len(parsed_rows) != len(entries) or len(parsed_rows) == 0:
+                valid = False
 
-                if end_dt < start_dt:
+            for i in range(len(parsed_rows) - 1):
+                if parsed_rows[i][0] >= parsed_rows[i + 1][0]:
                     valid = False
                     mark_row_invalid(i)
+                    mark_row_invalid(i + 1)
 
-                if i < len(parsed_rows) - 1:
-                    next_start, _ = parsed_rows[i + 1]
-                    if end_dt >= next_start:
-                        valid = False
-                        mark_row_invalid(i)
-                        mark_row_invalid(i + 1)
-
-            confirm_button.configure(state="normal" if valid else "disabled")
+            try:
+                confirm_button.configure(state="normal" if valid else "disabled")
+            except NameError:
+                pass
 
         def _on_var_change(name: str, index: str, mode: str) -> None:
             validate_plan()
 
-        def rebuild_intervals():
-            for widget in container.winfo_children():
-                widget.destroy()
-            entries.clear()
-
-            try:
-                count = int(count_var.get())
-            except Exception:
-                return
-
-            for i in range(count):
-                row = ctk.CTkFrame(container)
-                row.pack(fill="x", pady=5)
-
-                row.grid_columnconfigure(1, weight=1)
-                row.grid_columnconfigure(2, weight=1)
-                row.grid_columnconfigure(3, weight=1)
-
-                interval_label = ctk.CTkLabel(row, text=f"Intervallo {i + 1}")
-                interval_label.grid(row=0, column=0, padx=5)
-
-                start_var = ctk.StringVar()
-                end_var = ctk.StringVar()
-                setpoint_var = ctk.StringVar()
-
-                def open_calendar(d_var, is_end_interval=False):
-                    cal_popup = ctk.CTkToplevel(popup)
-                    cal_popup.title("Seleziona data e ora")
-                    cal_popup.geometry("550x650")
-                    center_window(cal_popup)
-                    cal_popup.minsize(550, 650)
-                    cal_popup.transient(popup)
-                    cal_popup.grab_set()
-
-                    cal = Calendar(cal_popup, date_pattern="dd/mm/yyyy", font=CALENDAR_FONT, locale='it_IT')
-                    cal.pack(pady=10, expand=True, fill="both")
-
-                    time_frame = ctk.CTkFrame(cal_popup, fg_color="transparent")
-                    time_frame.pack(pady=10)
-
-                    ctk.CTkLabel(time_frame, text="Ora:", font=GLOBAL_FONT).pack(side="left", padx=5)
-                    hours_var = ctk.StringVar(value="23" if is_end_interval else "00")
-                    hours_menu = ctk.CTkOptionMenu(
-                        time_frame,
-                        values=[f"{h:02d}" for h in range(24)],
-                        variable=hours_var,
-                        width=70,
-                        font=GLOBAL_FONT
-                    )
-                    hours_menu.pack(side="left", padx=5)
-
-                    ctk.CTkLabel(time_frame, text="Minuti:", font=GLOBAL_FONT).pack(side="left", padx=5)
-                    mins_var = ctk.StringVar(value="59" if is_end_interval else "00")
-                    mins_menu = ctk.CTkOptionMenu(
-                        time_frame,
-                        values=[f"{m:02d}" for m in range(60)],
-                        variable=mins_var,
-                        width=70,
-                        font=GLOBAL_FONT
-                    )
-                    mins_menu.pack(side="left", padx=5)
-
-                    def confirm_date():
-                        d_var.set(f"{cal.get_date()} {hours_var.get()}:{mins_var.get()}")
-                        cal_popup.destroy()
-
-                    confirm_btn = ctk.CTkButton(cal_popup, text="OK", command=confirm_date, font=GLOBAL_FONT)
-                    confirm_btn.pack(pady=10)
-
-                start_entry = ctk.CTkEntry(row, textvariable=start_var)
-                start_entry.grid(row=0, column=1, padx=5, sticky="ew")
-                add_placeholder(start_entry, "Inizio (gg/mm/aaaa hh:mm)")
-                start_entry.bind("<Button-1>", lambda e, dv=start_var: open_calendar(dv, is_end_interval=False))
-
-                end_entry = ctk.CTkEntry(row, textvariable=end_var)
-                end_entry.grid(row=0, column=2, padx=5, sticky="ew")
-                add_placeholder(end_entry, "Fine (gg/mm/aaaa hh:mm)")
-                end_entry.bind("<Button-1>", lambda e, dv=end_var: open_calendar(dv, is_end_interval=True))
-
-                start_var.trace_add("write", _on_var_change)
-                end_var.trace_add("write", _on_var_change)
-
-                setpoint_entry = ctk.CTkEntry(row, textvariable=setpoint_var)
-                setpoint_entry.grid(row=0, column=3, padx=5, sticky="ew")
-                add_placeholder(setpoint_entry, "Temperatura (°C)")
-                setpoint_entry.bind(
-                    "<Button-1>",
-                    lambda e, sp_entry=setpoint_entry: open_numeric_pad(
-                        parent=popup,
-                        entry_widget=sp_entry,
-                        allow_decimal=True,
-                        title="Setpoint °C",
-                        keep_previous=False
-                    )
-                )
-
-                entries.append((start_var, end_var, setpoint_var))
-
-        rebuild_intervals()
-
         def confirm_plan():
-            plan_data = []
+            parsed = []
 
-            for start_var, end_var, sp_var in entries:
-                start_str = start_var.get()
-                end_str = end_var.get()
-                sp_str = sp_var.get()
-
-                if not start_str or not end_str or not sp_str:
-                    continue
-
+            for start_var, sp_var in entries:
                 try:
-                    start_dt = datetime.strptime(start_str, "%d/%m/%Y %H:%M")
-                    end_dt = datetime.strptime(end_str, "%d/%m/%Y %H:%M")
-                    setpoint = float(sp_str)
-
-                    if start_dt <= end_dt:
-                        plan_data.append([start_dt.isoformat(), end_dt.isoformat(), setpoint])
+                    start_dt = datetime.strptime(start_var.get(), "%d/%m/%Y %H:%M")
+                    setpoint = float(sp_var.get())
+                    parsed.append((start_dt, setpoint))
                 except Exception as e:
                     print(f"Errore parsing plan: {e}")
-                    continue
+                    return
+
+            if not parsed:
+                return
+
+            plan_data = []
+            for i in range(len(parsed)):
+                start_dt, setpoint = parsed[i]
+                if i < len(parsed) - 1:
+                    end_dt = parsed[i + 1][0]
+                else:
+                    end_dt = datetime(2099, 12, 31, 23, 59)
+
+                plan_data.append([start_dt.isoformat(), end_dt.isoformat(), setpoint])
 
             try:
                 ch_id = f"ch{channel}"
@@ -602,6 +504,101 @@ class ChannelFrame(ctk.CTkFrame):
             state="disabled"
         )
         confirm_button.pack(pady=20)
+
+        def rebuild_intervals():
+            for widget in container.winfo_children():
+                widget.destroy()
+            entries.clear()
+
+            try:
+                count = int(count_var.get())
+            except Exception:
+                return
+
+            for i in range(count):
+                row = ctk.CTkFrame(container)
+                row.pack(fill="x", pady=5)
+
+                row.grid_columnconfigure(1, weight=1)
+                row.grid_columnconfigure(2, weight=1)
+
+                interval_label = ctk.CTkLabel(row, text=f"Intervallo {i + 1}")
+                interval_label.grid(row=0, column=0, padx=5)
+
+                start_var = ctk.StringVar()
+                setpoint_var = ctk.StringVar()
+
+                def open_calendar(d_var):
+                    cal_popup = ctk.CTkToplevel(popup)
+                    cal_popup.title("Seleziona data e ora inizio")
+                    cal_popup.geometry("550x650")
+                    center_window(cal_popup)
+                    cal_popup.minsize(550, 650)
+                    cal_popup.transient(popup)
+                    cal_popup.grab_set()
+
+                    cal = Calendar(cal_popup, date_pattern="dd/mm/yyyy", font=CALENDAR_FONT, locale='it_IT')
+                    cal.pack(pady=10, expand=True, fill="both")
+
+                    time_frame = ctk.CTkFrame(cal_popup, fg_color="transparent")
+                    time_frame.pack(pady=10)
+
+                    ctk.CTkLabel(time_frame, text="Ora:", font=GLOBAL_FONT).pack(side="left", padx=5)
+                    hours_var = ctk.StringVar(value="00")
+                    hours_menu = ctk.CTkOptionMenu(
+                        time_frame,
+                        values=[f"{h:02d}" for h in range(24)],
+                        variable=hours_var,
+                        width=70,
+                        font=GLOBAL_FONT
+                    )
+                    hours_menu.pack(side="left", padx=5)
+
+                    ctk.CTkLabel(time_frame, text="Minuti:", font=GLOBAL_FONT).pack(side="left", padx=5)
+                    mins_var = ctk.StringVar(value="00")
+                    mins_menu = ctk.CTkOptionMenu(
+                        time_frame,
+                        values=[f"{m:02d}" for m in range(0, 60, 5)],
+                        variable=mins_var,
+                        width=70,
+                        font=GLOBAL_FONT
+                    )
+                    mins_menu.pack(side="left", padx=5)
+
+                    def confirm_date():
+                        d_var.set(f"{cal.get_date()} {hours_var.get()}:{mins_var.get()}")
+                        cal_popup.destroy()
+
+                    confirm_btn = ctk.CTkButton(cal_popup, text="OK", command=confirm_date, font=GLOBAL_FONT)
+                    confirm_btn.pack(pady=10)
+
+                start_entry = ctk.CTkEntry(row, textvariable=start_var)
+                start_entry.grid(row=0, column=1, padx=5, sticky="ew")
+                add_placeholder(start_entry, "Inizio (gg/mm/aaaa hh:mm)")
+                start_entry.bind("<Button-1>", lambda e, dv=start_var: open_calendar(dv))
+
+                start_var.trace_add("write", _on_var_change)
+                setpoint_var.trace_add("write", _on_var_change)
+
+                setpoint_entry = ctk.CTkEntry(row, textvariable=setpoint_var)
+                setpoint_entry.grid(row=0, column=2, padx=5, sticky="ew")
+                add_placeholder(setpoint_entry, "Temperatura (°C)")
+                setpoint_entry.bind(
+                    "<Button-1>",
+                    lambda e, sp_entry=setpoint_entry: open_numeric_pad(
+                        parent=popup,
+                        entry_widget=sp_entry,
+                        allow_decimal=True,
+                        title="Setpoint °C",
+                        keep_previous=False
+                    )
+                )
+
+                entries.append((start_var, setpoint_var))
+
+            validate_plan()
+
+        rebuild_intervals()
 
 # --- Main App ---
 class ThermostatApp(ctk.CTk):

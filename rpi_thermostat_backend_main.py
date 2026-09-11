@@ -5,7 +5,7 @@ import os
 from flask import Flask, jsonify, request
 from gpiozero import OutputDevice
 import spidev
-from datetime import datetime
+from datetime import datetime, timedelta
 from collections import deque
 
 # ==============================
@@ -141,7 +141,7 @@ def control_loop():
             channels["ch1"]["temp"] = round(t1, 2)
             channels["ch2"]["temp"] = round(t2, 2)
 
-            now = datetime.now()
+            now = datetime.now().replace(second=0, microsecond=0)
 
             # 3. Logica di controllo per ogni canale
             for name, ch in channels.items():
@@ -160,9 +160,9 @@ def control_loop():
                 has_active_schedule = False
 
                 for entry in ch.get("schedule", []):
-                    start_dt = datetime.fromisoformat(entry[0])
-                    end_dt = datetime.fromisoformat(entry[1])
-                    if start_dt <= now <= end_dt:
+                    start_dt = datetime.fromisoformat(entry[0]).replace(second=0, microsecond=0)
+                    end_dt = datetime.fromisoformat(entry[1]).replace(second=0, microsecond=0)
+                    if start_dt <= now < end_dt:
                         current_setpoint = entry[2]
                         has_active_schedule = True
                         break
@@ -221,7 +221,6 @@ def status():
         }
     })
 
-@app.post("/settings")
 @app.post("/settings")
 def settings():
     data = request.json
