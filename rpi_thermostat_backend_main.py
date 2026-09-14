@@ -108,8 +108,8 @@ channels = {
 
 manual_enabled = False
 # buffer per campionamento temperature
-history_ch1 = deque(maxlen=10)
-history_ch2 = deque(maxlen=10)
+history_ch1 = deque(maxlen=50)
+history_ch2 = deque(maxlen=50)
 POLL_INTERVAL = 0.2
 
 # ==============================
@@ -128,13 +128,15 @@ def control_loop():
             if t2_raw is not None:
                 history_ch2.append(t2_raw)
 
+            valid_samples_ch1 = [t for t in history_ch1 if t is not None]
+            valid_samples_ch2 = [t for t in history_ch2 if t is not None]
             # Procediamo al controllo del relè quando abbiamo 5 campioni
-            if len(history_ch1) < 5:
+            if len(valid_samples_ch1) < 50:
                 time.sleep(0.2)
                 continue
 
             # Media dei 5 campioni
-            t1 = (sum(history_ch1) / len(history_ch1)) + CH1_TEMP_OFFSET
+            t1 = (sum(valid_samples_ch1) / len(valid_samples_ch1)) + CH1_TEMP_OFFSET
             t2 = (sum(history_ch2) / len(history_ch2)) + CH2_TEMP_OFFSET
 
             # 2. Aggiornamento canali per il frontend

@@ -670,7 +670,9 @@ class ThermostatApp(ctk.CTk):
 
                 # CH1
                 ch1_data = channels_data.get("CH1", {})
-                temp1 = round(ch1_data.get('temperature', 0.0), 1)
+                raw_temp1 = ch1_data.get('temperature')
+                temp1 = round(raw_temp1, 1) if raw_temp1 is not None else "--"
+                self.ch1.header_temp_label.configure(text=f"{temp1} °C")
                 self.ch1.header_temp_label.configure(text=f"{temp1} °C")
                 self.ch1.sp_curr_label.configure(text=f"Setpoint attuale: {ch1_data.get('setpoint', '--')} °C")
                 self.ch1.hyst_curr_label.configure(text=f"Isteresi attuale: {ch1_data.get('hysteresis', '--')} °C")
@@ -681,7 +683,8 @@ class ThermostatApp(ctk.CTk):
 
                 # CH2
                 ch2_data = channels_data.get("CH2", {})
-                temp2 = round(ch2_data.get('temperature', 0.0), 1)
+                raw_temp2 = ch2_data.get('temperature')
+                temp2 = round(raw_temp2, 1) if raw_temp2 is not None else "--"
                 self.ch2.header_temp_label.configure(text=f"{temp2} °C")
                 self.ch2.sp_curr_label.configure(text=f"Setpoint attuale: {ch2_data.get('setpoint', '--')} °C")
                 self.ch2.hyst_curr_label.configure(text=f"Isteresi attuale: {ch2_data.get('hysteresis', '--')} °C")
