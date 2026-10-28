@@ -1,40 +1,46 @@
 import customtkinter as ctk
 from CTkMessagebox import CTkMessagebox
-import requests
 import threading
 import time
-from datetime import datetime
+import uuid
+from datetime import datetime, timezone
 from tkcalendar import Calendar
 import logging
 import json
 import os
+from pathlib import Path
+
+from firebase_client import FirebaseDatabaseError, FirebaseRealtimeDatabase
+
+APP_DIR = Path(__file__).resolve().parent
+DATABASE = FirebaseRealtimeDatabase()
+
+
+class ConfigSyncPendingError(FirebaseDatabaseError):
+    """The desired settings reached Firebase, but local Pi persistence is pending."""
 
 # --- MACHINE DATA LOADING FROM FILE ---
 def load_machine_data():
-    settings_file = "machine_data.json"
+    settings_file = APP_DIR / "machine_data.json"
     machine_data = {
-        "raspberry_ip": "192.168.68.131",
-        "status_timeout": 10.0
+        "status_timeout": 10.0,
+        "status_poll_interval": 1.0,
     }
     if os.path.exists(settings_file):
         try:
             with open(settings_file, "r") as f:
                 data = json.load(f)
-                machine_data["raspberry_ip"] = data.get("raspberry_ip", machine_data["raspberry_ip"])
                 machine_data["status_timeout"] = float(data.get("status_timeout", machine_data["status_timeout"]))
+                machine_data["status_poll_interval"] = float(
+                    data.get("status_poll_interval", machine_data["status_poll_interval"])
+                )
         except Exception as e:
             print(f"Errore lettura machine_data.json: {e}")
     return machine_data
 
 machine_data = load_machine_data()
-
-RASPBERRY_IP = machine_data["raspberry_ip"]
-API_STATUS = f"http://{RASPBERRY_IP}:5000/status"
-API_SETTINGS = f"http://{RASPBERRY_IP}:5000/settings"
-API_MANUAL = f"http://{RASPBERRY_IP}:5000/manual"
-API_SHUTDOWN = f"http://{RASPBERRY_IP}:5000/shutdown"
-
-STATUS_TIMEOUT = machine_data.get("status_timeout", 2.0)
+STATUS_TIMEOUT = machine_data.get("status_timeout", 10.0)
+STATUS_POLL_INTERVAL = machine_data.get("status_poll_interval", 1.0)
 
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("dark-blue")
@@ -44,7 +50,7 @@ CALENDAR_FONT = "Bahnschrift 24"
 GLOBAL_FONT = (APP_FONT, 14)
 
 logging.basicConfig(
-    filename='log.txt',
+    filename=str(APP_DIR / 'log.txt'),
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S'
@@ -155,6 +161,7 @@ class ChannelFrame(ctk.CTkFrame):
             border_color="#4a4a4a"
         )
         self.ch_num = ch_num
+        self.app = parent.winfo_toplevel()
         label_font = (APP_FONT, 16)
 
         header_text = title if title is not None else f"CH{ch_num}"
@@ -311,34 +318,35 @@ class ChannelFrame(ctk.CTkFrame):
             if msg.get() == "Annulla":
                 return
         try:
-            payload = {}
+            updates = {}
 
             if param == "setpoint" or param is None:
-                payload[prefix + "setpoint"] = float(self.sp_entry.get())
+                updates["setpoint"] = float(self.sp_entry.get())
 
             if param == "hysteresis" or param is None:
-                payload[prefix + "hysteresis"] = float(self.hyst_entry.get())
+                updates["hysteresis"] = float(self.hyst_entry.get())
 
             if param == "mode" or param is None:
                 mode_num = float(self.mode_var.get().split(" ")[0])
-                payload[prefix + "mode"] = mode_num
+                updates["mode"] = "heating" if mode_num == 1 else "cooling"
 
-            if payload:
-                requests.post(API_SETTINGS, json=payload, timeout=2)
-                logging.info(f"Invio parametri: {payload}")
+            if updates:
+                self.app.update_channel_config(self.ch_num, updates, clear_schedule=("setpoint" in updates))
+                logging.info("Configurazione CH%s inviata a Firebase: %s", self.ch_num, updates)
         except Exception as e:
-            print(f"Errore update CH{self.ch_num}: {e}")
+            logging.error("Errore aggiornamento CH%s: %s", self.ch_num, e)
+            if isinstance(e, ConfigSyncPendingError):
+                message = f"Le impostazioni sono su Firebase, ma manca ancora la conferma del salvataggio locale sul Raspberry.\n{e}"
+            else:
+                message = f"Impossibile salvare le impostazioni su Firebase.\n{e}"
+            CTkMessagebox(title="Errore", message=message, icon="cancel")
 
     def manual_enable_toggle(self):
         try:
             val = bool(self.manual_enable_var.get())
-            requests.post(
-                API_MANUAL,
-                json={"manual": val},
-                timeout=2
-            )
+            self.app.send_firebase_command("manual_enabled", val)
         except Exception as e:
-            print(f"Errore manual enable CH{self.ch_num}: {e}")
+            logging.error("Errore comando modalità manuale CH%s: %s", self.ch_num, e)
 
         self.update_manual_buttons_state()
 
@@ -350,14 +358,9 @@ class ChannelFrame(ctk.CTkFrame):
 
     def manual_set(self, state: bool):
         try:
-            ch_id = f"ch{self.ch_num}"
-            requests.post(
-                f"{API_MANUAL}/{ch_id}",
-                json={"state": state},
-                timeout=2
-            )
+            self.app.send_firebase_command(f"manual_relay/ch{self.ch_num}", state)
         except Exception as e:
-            print(f"Errore manual CH{self.ch_num}: {e}")
+            logging.error("Errore comando manuale CH%s: %s", self.ch_num, e)
 
     def open_plan_popup(self):
         channel = self.ch_num
@@ -487,13 +490,20 @@ class ChannelFrame(ctk.CTkFrame):
                 plan_data.append([start_dt.isoformat(), end_dt.isoformat(), setpoint])
 
             try:
-                ch_id = f"ch{channel}"
-                url = f"http://{RASPBERRY_IP}:5000/schedule/{ch_id}"
-                requests.post(url, json={"schedule": plan_data}, timeout=2)
+                self.app.update_channel_config(channel, {"schedule": plan_data})
                 logging.info(f"Inviato nuovo SCHEDULING per Canale {channel}: {plan_data}")
             except Exception as e:
-                logging.info(f"Errore nell'invio dello SCHEDULING per Canale {channel}: {e}")
-                print(f"Errore invio schedule: {e}")
+                logging.error("Errore nell'invio dello SCHEDULING per Canale %s: %s", channel, e)
+                if isinstance(e, ConfigSyncPendingError):
+                    message = f"Il planning è su Firebase, ma il Raspberry non ha ancora confermato il salvataggio locale.\n{e}"
+                else:
+                    message = f"Impossibile salvare il planning su Firebase.\n{e}"
+                CTkMessagebox(
+                    title="Errore",
+                    message=message + "\n\nIl planning è ancora aperto.",
+                    icon="cancel",
+                )
+                return
 
             popup.destroy()
 
@@ -606,11 +616,14 @@ class ThermostatApp(ctk.CTk):
         super().__init__()
         self.title("Termostato")
         self.geometry("1400x500")
-        self.iconbitmap("rpi_thermostat.ico")
+        self.iconbitmap(str(APP_DIR / "rpi_thermostat.ico"))
         self.update_msg = ctk.CTkLabel(self, text="", font=GLOBAL_FONT, text_color="green")
         self.update_msg.pack(pady=5)
 
         self.connected = False
+        self.last_status = None
+        self.last_relay = {"CH1": None, "CH2": None}
+        self._initial_settings_loaded = False
         self.connection_label = ctk.CTkLabel(
             self,
             text="TERMOSTATO OFFLINE",
@@ -652,85 +665,145 @@ class ThermostatApp(ctk.CTk):
 
     def update_loop(self):
         was_connected = True
-        last_relay = {"CH1": None, "CH2": None}
 
         while True:
             try:
-                r = requests.get(API_STATUS, timeout=STATUS_TIMEOUT)
-                r.raise_for_status()
-                data = r.json()
+                data = DATABASE.get("thermostat/status")
+                if not isinstance(data, dict):
+                    raise FirebaseDatabaseError("Stato del Raspberry non ancora disponibile")
+
+                updated_at = data.get("updated_at")
+                if not updated_at:
+                    raise FirebaseDatabaseError("Lo stato Firebase non contiene il timestamp di aggiornamento")
+                state_time = datetime.fromisoformat(updated_at.replace("Z", "+00:00"))
+                age_seconds = (datetime.now(timezone.utc) - state_time).total_seconds()
+                if age_seconds < -60 or age_seconds > STATUS_TIMEOUT:
+                    raise FirebaseDatabaseError("Stato del Raspberry non aggiornato")
 
                 if not was_connected:
-                    logging.info("Comunicazione con Backend stabilita.")
+                    logging.info("Comunicazione con Raspberry/Firebase stabilita.")
                     was_connected = True
 
-                self.set_connection_state(True)
-
-                channels_data = data.get("channels", {})
-
-                # CH1
-                ch1_data = channels_data.get("CH1", {})
-                raw_temp1 = ch1_data.get('temperature')
-                temp1 = round(raw_temp1, 1) if raw_temp1 is not None else "--"
-                self.ch1.header_temp_label.configure(text=f"{temp1} °C")
-                self.ch1.header_temp_label.configure(text=f"{temp1} °C")
-                self.ch1.sp_curr_label.configure(text=f"Setpoint attuale: {ch1_data.get('setpoint', '--')} °C")
-                self.ch1.hyst_curr_label.configure(text=f"Isteresi attuale: {ch1_data.get('hysteresis', '--')} °C")
-                mode_label = "HEATING" if ch1_data.get("mode") == 1 else "COOLING"
-                self.ch1.mode_curr_label.configure(text=f"Modalità: {mode_label}")
-                relay_state = "ON" if ch1_data.get("relay", False) else "OFF"
-                self.ch1.relay_label.configure(text=f"Relay: {relay_state}")
-
-                # CH2
-                ch2_data = channels_data.get("CH2", {})
-                raw_temp2 = ch2_data.get('temperature')
-                temp2 = round(raw_temp2, 1) if raw_temp2 is not None else "--"
-                self.ch2.header_temp_label.configure(text=f"{temp2} °C")
-                self.ch2.sp_curr_label.configure(text=f"Setpoint attuale: {ch2_data.get('setpoint', '--')} °C")
-                self.ch2.hyst_curr_label.configure(text=f"Isteresi attuale: {ch2_data.get('hysteresis', '--')} °C")
-                mode_label2 = "HEATING" if ch2_data.get("mode") == 1 else "COOLING"
-                self.ch2.mode_curr_label.configure(text=f"Modalità: {mode_label2}")
-                relay_state2 = "ON" if ch2_data.get("relay", False) else "OFF"
-                self.ch2.relay_label.configure(text=f"Relay: {relay_state2}")
-
-                for ch_name in ["CH1", "CH2"]:
-                    ch_info = channels_data.get(ch_name, {})
-                    temp = ch_info.get('temperature', '--')
-                    sp = ch_info.get('setpoint', '--')
-                    relay_on = ch_info.get('relay', False)
-                    if last_relay[ch_name] is not None and last_relay[ch_name] != relay_on:
-                        stato_testo = "ON" if relay_on else "OFF"
-                        logging.info(f"[{ch_name}] Cambio stato Relè: {stato_testo} (Temp: {temp}°C, Setpoint: {sp}°C)")
-                    last_relay[ch_name] = relay_on
-
-                self.ch1.is_planning_active = ch1_data.get("schedule_enabled", False)
-                self.ch2.is_planning_active = ch2_data.get("schedule_enabled", False)
-
-                self.ch1.sp_entry.configure(state="normal", fg_color=("#F9F9FA", "#343638") if not self.ch1.is_planning_active else "#3b3b00")
-                self.ch2.sp_entry.configure(state="normal", fg_color=("#F9F9FA", "#343638") if not self.ch2.is_planning_active else "#3b3b00")
+                self.last_status = data
+                self.after(0, self.apply_status, data)
 
             except Exception as e:
                 if was_connected:
-                    logging.error(f"Perdita comunicazione con Backend: {e}")
+                    logging.error("Perdita comunicazione con Raspberry/Firebase: %s", e)
                     was_connected = False
-                self.set_connection_state(False)
+                self.last_status = None
+                self.after(0, self.set_connection_state, False)
 
-            time.sleep(1)
+            time.sleep(STATUS_POLL_INTERVAL)
 
-    def manual(self, state: bool):
-        try:
-            requests.post(f"http://{RASPBERRY_IP}:5000/manual/ch1", json={"state": state}, timeout=2)
-            requests.post(f"http://{RASPBERRY_IP}:5000/manual/ch2", json={"state": state}, timeout=2)
-        except Exception:
-            pass
+    def apply_status(self, data):
+        self.set_connection_state(True)
+        channels_data = data.get("channels", {})
+        channel_frames = {"CH1": self.ch1, "CH2": self.ch2}
+
+        if not self._initial_settings_loaded:
+            for channel_name, frame in channel_frames.items():
+                channel_data = channels_data.get(channel_name, {})
+                if channel_data.get("setpoint") is not None:
+                    frame.sp_entry.insert(0, str(channel_data["setpoint"]))
+                if channel_data.get("hysteresis") is not None:
+                    frame.hyst_entry.insert(0, str(channel_data["hysteresis"]))
+                frame.mode_var.set("1 - HEATING" if channel_data.get("mode") == 1 else "2 - COOLING")
+            self._initial_settings_loaded = True
+
+        for channel_name, frame in channel_frames.items():
+            channel_data = channels_data.get(channel_name, {})
+            raw_temperature = channel_data.get("temperature")
+            temperature = round(raw_temperature, 1) if raw_temperature is not None else "--"
+            frame.header_temp_label.configure(text=f"{temperature} °C")
+            frame.sp_curr_label.configure(text=f"Setpoint attuale: {channel_data.get('setpoint', '--')} °C")
+            frame.hyst_curr_label.configure(text=f"Isteresi attuale: {channel_data.get('hysteresis', '--')} °C")
+            mode_label = "HEATING" if channel_data.get("mode") == 1 else "COOLING"
+            frame.mode_curr_label.configure(text=f"Modalità: {mode_label}")
+            relay_on = channel_data.get("relay", False)
+            frame.relay_label.configure(text=f"Relay: {'ON' if relay_on else 'OFF'}")
+            frame.is_planning_active = channel_data.get("schedule_enabled", False)
+            frame.sp_entry.configure(
+                state="normal",
+                fg_color=("#F9F9FA", "#343638") if not frame.is_planning_active else "#3b3b00",
+            )
+
+            if self.last_relay[channel_name] is not None and self.last_relay[channel_name] != relay_on:
+                logging.info(
+                    "[%s] Cambio stato Relè: %s (Temp: %s°C, Setpoint: %s°C)",
+                    channel_name,
+                    "ON" if relay_on else "OFF",
+                    channel_data.get("temperature", "--"),
+                    channel_data.get("setpoint", "--"),
+                )
+            self.last_relay[channel_name] = relay_on
+
+        manual_enabled = bool(data.get("manual", False))
+        for frame in channel_frames.values():
+            frame.manual_enable_var.set(1 if manual_enabled else 0)
+            frame.update_manual_buttons_state()
+
+    def update_channel_config(self, channel_number, updates, clear_schedule=False):
+        current = DATABASE.get("thermostat/config")
+        if not isinstance(current, dict):
+            current = {
+                "revision": 0,
+                "channels": {
+                    "ch1": {"setpoint": 20.0, "hysteresis": 0.5, "mode": "heating", "enabled": True, "schedule": []},
+                    "ch2": {"setpoint": 20.0, "hysteresis": 0.5, "mode": "heating", "enabled": True, "schedule": []},
+                },
+            }
+
+        channel_id = f"ch{channel_number}"
+        channels_config = current.setdefault("channels", {})
+        channel_config = channels_config.setdefault(
+            channel_id,
+            {"setpoint": 20.0, "hysteresis": 0.5, "mode": "heating", "enabled": True, "schedule": []},
+        )
+        channel_config.update(updates)
+        if clear_schedule:
+            channel_config["schedule"] = []
+
+        current["revision"] = max(int(current.get("revision", 0)) + 1, int(time.time() * 1000))
+        current["updated_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        DATABASE.put("thermostat/config", current)
+
+        # Treat a settings change as complete only after the Raspberry has
+        # persisted that revision to its local config.json and published the ack.
+        deadline = time.monotonic() + 6.0
+        while time.monotonic() < deadline:
+            try:
+                status = DATABASE.get("thermostat/status")
+            except FirebaseDatabaseError as exc:
+                raise ConfigSyncPendingError(
+                    f"La revisione {current['revision']} è su Firebase, ma non è possibile verificare il salvataggio locale: {exc}"
+                ) from exc
+            if isinstance(status, dict) and int(status.get("config_revision", -1)) >= current["revision"]:
+                return current
+            time.sleep(0.5)
+
+        raise ConfigSyncPendingError(
+            f"La revisione {current['revision']} è su Firebase, ma il Raspberry non ha ancora confermato il salvataggio locale"
+        )
+
+    def send_firebase_command(self, path, value):
+        if not self.last_status or not self.last_status.get("boot_id"):
+            raise FirebaseDatabaseError("Il Raspberry non risulta connesso: attendi che torni online")
+        command = {
+            "id": uuid.uuid4().hex,
+            "boot_id": self.last_status["boot_id"],
+            "value": value,
+        }
+        DATABASE.put(f"thermostat/commands/{path}", command)
 
     def shutdown_rpi(self):
         try:
             msg = CTkMessagebox(title="Conferma", message="Spegni RPi?", icon="warning", option_1="No", option_2="Sì")
             if msg.get() == "Sì":
-                requests.post(API_SHUTDOWN, timeout=2)
-        except Exception:
-            pass
+                self.send_firebase_command("shutdown", True)
+        except Exception as e:
+            logging.error("Errore invio comando di spegnimento: %s", e)
+            CTkMessagebox(title="Errore", message=f"Impossibile inviare il comando di spegnimento.\n{e}", icon="cancel")
 
 def main():
     app = ThermostatApp()

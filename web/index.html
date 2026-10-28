@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#111315">
+  <meta name="description" content="Pannello di controllo del termostato Raspberry Pi a due canali.">
+  <title>Thermostat · Control</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <main class="app-shell">
+    <section id="loginView" class="login-layout">
+      <div class="login-brand">
+        <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></div>
+        <p class="eyebrow">RPI · THERMOSTAT</p>
+        <h1>Controllo preciso.<br><em>Da ogni luogo.</em></h1>
+        <p class="brand-copy">Un pannello semplice per monitorare i due canali e gestire setpoint e planning.</p>
+        <div class="login-decoration" aria-hidden="true">
+          <div class="orbit orbit-one"></div><div class="orbit orbit-two"></div>
+          <div class="orbit-core"><span>°C</span></div>
+          <div class="deco-dot dot-one"></div><div class="deco-dot dot-two"></div>
+        </div>
+        <p class="brand-foot">CONTROLLO LOCALE · SINCRONIZZAZIONE FIREBASE</p>
+      </div>
+
+      <div class="login-panel">
+        <div class="mobile-brand"><div class="brand-mark small" aria-hidden="true"><span></span><span></span><span></span></div><span>RPI · THERMOSTAT</span></div>
+        <div class="login-heading">
+          <p class="eyebrow">BENTORNATO</p>
+          <h2>Accedi al sistema</h2>
+          <p>Usa l’account Firebase dedicato al termostato.</p>
+        </div>
+        <form id="loginForm" class="login-form">
+          <label for="apiKey">Firebase Web API key</label>
+          <input id="apiKey" name="apiKey" type="text" autocomplete="off" required placeholder="AIza…">
+          <label for="databaseUrl">URL Realtime Database</label>
+          <input id="databaseUrl" name="databaseUrl" type="url" autocomplete="url" required placeholder="https://…firebasedatabase.app">
+          <label for="email">Email</label>
+          <input id="email" name="email" type="email" autocomplete="username" required placeholder="nome@dominio.it">
+          <label for="password">Password</label>
+          <input id="password" name="password" type="password" autocomplete="current-password" required>
+          <details class="advanced-login">
+            <summary>Opzioni avanzate</summary>
+            <label for="expectedUid">UID autorizzato (facoltativo)</label>
+            <input id="expectedUid" name="expectedUid" type="text" autocomplete="off" placeholder="UID utente Firebase">
+          </details>
+          <div id="loginError" class="notice error" role="alert" hidden></div>
+          <button id="loginButton" class="button button-primary login-submit" type="submit"><span>Connetti</span><span aria-hidden="true">↗</span></button>
+          <p class="privacy-note"><span class="lock-icon" aria-hidden="true">⌑</span> La password resta in memoria per questa sessione e non viene salvata.</p>
+        </form>
+      </div>
+    </section>
+
+    <section id="dashboardView" class="dashboard" hidden>
+      <header class="topbar">
+        <a class="wordmark" href="#top" aria-label="Thermostat home"><span class="brand-mark small" aria-hidden="true"><span></span><span></span><span></span></span><span>THERMOSTAT<span class="wordmark-sub">CONTROL SYSTEM</span></span></a>
+        <div class="topbar-right">
+          <div class="connection-pill" id="connectionPill"><span class="connection-dot"></span><span id="connectionText">Connessione…</span></div>
+          <button id="signOutButton" class="icon-button signout-button" type="button" aria-label="Esci" title="Esci"><span aria-hidden="true">↪</span><span class="signout-label">Esci</span></button>
+        </div>
+      </header>
+
+      <div class="dashboard-content" id="top">
+        <section class="welcome-row">
+          <div>
+            <p class="eyebrow">PANORAMICA · <span id="currentDate"></span></p>
+            <h1>Il tuo ambiente,<br class="mobile-break"> sotto controllo.</h1>
+            <p class="welcome-copy">Stato in tempo reale dei canali di temperatura.</p>
+          </div>
+          <div class="system-state" id="systemState">
+            <span class="state-icon" aria-hidden="true"><span></span></span>
+            <div><span class="state-label">SISTEMA</span><strong id="systemStateText">IN ATTESA</strong><span id="lastUpdate" class="state-time">—</span></div>
+          </div>
+        </section>
+
+        <section class="channel-grid" aria-label="Canali di temperatura">
+          <article class="channel-card" data-channel="ch1">
+            <div class="channel-topline"><div><p class="eyebrow">ZONA 01</p><h2>Channel 1</h2></div><span class="relay-badge" id="ch1RelayBadge"><span></span><span id="ch1RelayText">—</span></span></div>
+            <div class="temperature-block"><span class="temperature-value" id="ch1Temperature">—</span><span class="temperature-unit">°C</span><span class="temperature-caption">TEMPERATURA ATTUALE</span></div>
+            <div class="channel-metrics"><div><span>Setpoint</span><strong id="ch1SetpointReadout">— °C</strong></div><div><span>Isteresi</span><strong id="ch1HysteresisReadout">— °C</strong></div><div><span>Modalità</span><strong id="ch1ModeReadout">—</strong></div></div>
+            <div class="channel-controls">
+              <div class="field-row"><label for="ch1Setpoint">Setpoint</label><div class="input-unit"><input id="ch1Setpoint" type="number" inputmode="decimal" step="0.1"><span>°C</span></div><button class="button button-small save-config" data-channel="ch1" data-field="setpoint" type="button">Salva</button></div>
+              <div class="field-row"><label for="ch1Hysteresis">Isteresi</label><div class="input-unit"><input id="ch1Hysteresis" type="number" inputmode="decimal" step="0.1" min="0"><span>°C</span></div><button class="button button-small save-config" data-channel="ch1" data-field="hysteresis" type="button">Salva</button></div>
+              <div class="field-row mode-row"><label for="ch1Mode">Modalità</label><select id="ch1Mode"><option value="heating">Heating</option><option value="cooling">Cooling</option></select><button class="button button-small save-config" data-channel="ch1" data-field="mode" type="button">Salva</button></div>
+            </div>
+            <div class="channel-footer"><button class="text-button open-plan" data-channel="ch1" type="button"><span aria-hidden="true">▦</span> Gestisci planning <span id="ch1PlanCount" class="plan-count">0</span></button><span id="ch1PlanState" class="plan-state">Nessun planning</span></div>
+          </article>
+
+          <article class="channel-card" data-channel="ch2">
+            <div class="channel-topline"><div><p class="eyebrow">ZONA 02</p><h2>Channel 2</h2></div><span class="relay-badge" id="ch2RelayBadge"><span></span><span id="ch2RelayText">—</span></span></div>
+            <div class="temperature-block"><span class="temperature-value" id="ch2Temperature">—</span><span class="temperature-unit">°C</span><span class="temperature-caption">TEMPERATURA ATTUALE</span></div>
+            <div class="channel-metrics"><div><span>Setpoint</span><strong id="ch2SetpointReadout">— °C</strong></div><div><span>Isteresi</span><strong id="ch2HysteresisReadout">— °C</strong></div><div><span>Modalità</span><strong id="ch2ModeReadout">—</strong></div></div>
+            <div class="channel-controls">
+              <div class="field-row"><label for="ch2Setpoint">Setpoint</label><div class="input-unit"><input id="ch2Setpoint" type="number" inputmode="decimal" step="0.1"><span>°C</span></div><button class="button button-small save-config" data-channel="ch2" data-field="setpoint" type="button">Salva</button></div>
+              <div class="field-row"><label for="ch2Hysteresis">Isteresi</label><div class="input-unit"><input id="ch2Hysteresis" type="number" inputmode="decimal" step="0.1" min="0"><span>°C</span></div><button class="button button-small save-config" data-channel="ch2" data-field="hysteresis" type="button">Salva</button></div>
+              <div class="field-row mode-row"><label for="ch2Mode">Modalità</label><select id="ch2Mode"><option value="heating">Heating</option><option value="cooling">Cooling</option></select><button class="button button-small save-config" data-channel="ch2" data-field="mode" type="button">Salva</button></div>
+            </div>
+            <div class="channel-footer"><button class="text-button open-plan" data-channel="ch2" type="button"><span aria-hidden="true">▦</span> Gestisci planning <span id="ch2PlanCount" class="plan-count">0</span></button><span id="ch2PlanState" class="plan-state">Nessun planning</span></div>
+          </article>
+        </section>
+
+        <section class="lower-grid">
+          <article class="control-card manual-card">
+            <div class="section-heading"><div><p class="eyebrow">CONTROLLO DIRETTO</p><h2>Forzatura manuale</h2></div><span class="manual-indicator" id="manualIndicator">AUTOMATICO</span></div>
+            <p class="section-copy">La modalità manuale sospende la regolazione automatica. I pulsanti agiscono solo sul relè simulato dal backend.</p>
+            <label class="switch-row" for="manualToggle"><span><strong>Abilita modalità manuale</strong><small>Valida per entrambi i canali</small></span><input id="manualToggle" type="checkbox" role="switch"><span class="switch-track" aria-hidden="true"></span></label>
+            <div class="manual-channels">
+              <div class="manual-channel"><span>CHANNEL 1</span><div><button class="button relay-action relay-on" data-channel="ch1" data-value="true" type="button" disabled>ON</button><button class="button relay-action relay-off" data-channel="ch1" data-value="false" type="button" disabled>OFF</button></div></div>
+              <div class="manual-channel"><span>CHANNEL 2</span><div><button class="button relay-action relay-on" data-channel="ch2" data-value="true" type="button" disabled>ON</button><button class="button relay-action relay-off" data-channel="ch2" data-value="false" type="button" disabled>OFF</button></div></div>
+            </div>
+          </article>
+          <article class="control-card safety-card">
+            <div class="section-heading"><div><p class="eyebrow">SISTEMA</p><h2>Termostato</h2></div><span class="safety-icon" aria-hidden="true">⌁</span></div>
+            <p class="section-copy">Arresta il Raspberry Pi. La richiesta viene inviata solo dopo la conferma.</p>
+            <button id="shutdownButton" class="button button-danger" type="button"><span aria-hidden="true">⏻</span> Spegni Raspberry</button>
+            <p class="safety-footnote">Il controllo termico locale continua anche se il frontend si disconnette.</p>
+          </article>
+        </section>
+
+        <footer class="dashboard-footer"><span>RPI THERMOSTAT <span class="footer-separator">/</span> LIVE MONITOR</span><span id="syncMessage">In attesa di connessione…</span></footer>
+      </div>
+    </section>
+  </main>
+
+  <dialog id="planDialog" class="plan-dialog">
+    <form method="dialog" class="dialog-top"><div><p class="eyebrow">PROGRAMMAZIONE</p><h2 id="planTitle">Planning</h2></div><button class="icon-button close-dialog" aria-label="Chiudi" value="cancel">×</button></form>
+    <div class="dialog-content"><p class="dialog-copy">Aggiungi gli orari di inizio e il setpoint. Ogni intervallo termina quando inizia il successivo; l’ultimo resta attivo fino a una nuova pianificazione.</p>
+      <div id="planRows" class="plan-rows"></div>
+      <button id="addPlanRow" class="button button-quiet add-plan-row" type="button"><span aria-hidden="true">＋</span> Aggiungi intervallo</button>
+      <div id="planError" class="notice error" role="alert" hidden></div>
+    </div>
+    <div class="dialog-actions"><button id="clearPlan" class="text-button danger-text" type="button">Rimuovi planning</button><div><button class="button button-quiet close-dialog" type="button">Annulla</button><button id="savePlan" class="button button-primary" type="button">Salva planning</button></div></div>
+  </dialog>
+
+  <div id="toastRegion" class="toast-region" aria-live="polite" aria-atomic="true"></div>
+</body>
+</html>

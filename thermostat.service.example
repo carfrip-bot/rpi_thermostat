@@ -1,0 +1,14 @@
+[Unit]
+Description=Raspberry Pi Thermostat Backend
+[Service]
+Type=simple
+User=pi
+SupplementaryGroups=gpio spi
+WorkingDirectory=/home/pi/rpi_thermostat
+ExecStart=/usr/bin/python3 /home/pi/rpi_thermostat/rpi_thermostat_backend_main.py
+Restart=on-failure
+RestartSec=5
+LoadCredentialEncrypted=firebase_config:/home/pi/.config/rpi_thermostat/firebase_config.cred
+
+[Install]
+WantedBy=multi-user.target

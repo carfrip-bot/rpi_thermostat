@@ -1,0 +1,8 @@
+__pycache__/
+*.py[cod]
+firebase_config.json
+firebase_config.cred
+config.json
+config.json.tmp
+log.txt
+Configurazione_Raspberry.docx
