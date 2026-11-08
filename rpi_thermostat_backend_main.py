@@ -41,7 +41,7 @@ DEFAULT_CONFIG = {
 }
 
 CH1_TEMP_OFFSET = -1.0
-CH2_TEMP_OFFSET = -1.0
+CH2_TEMP_OFFSET = -4.0
 RELAY_ACTIVE_LOW = False
 SPI_BUS = 0
 CH1_PIN = 17
@@ -175,30 +175,40 @@ history_ch1 = deque(maxlen=SAMPLES)
 history_ch2 = deque(maxlen=SAMPLES)
 
 
+sensor_fault = {"ch1": False, "ch2": False}
+
+
+def filtered_temperature(channel_id, history, raw, offset):
+    """Return the averaged temperature, or None while the sensor is faulty or warming up.
+
+    Faulty readings are stored as None so a disconnected thermocouple can never
+    keep controlling the relay with stale samples.
+    """
+    history.append(raw)
+    if raw is None:
+        if not sensor_fault[channel_id]:
+            sensor_fault[channel_id] = True
+            logging.warning("Termocoppia %s scollegata o non leggibile: uscita disattivata", channel_id.upper())
+        return None
+    if sensor_fault[channel_id]:
+        sensor_fault[channel_id] = False
+        logging.info("Termocoppia %s di nuovo leggibile", channel_id.upper())
+    valid_samples = [temperature for temperature in history if temperature is not None]
+    if len(valid_samples) < SAMPLES:
+        return None
+    return round((sum(valid_samples) / len(valid_samples)) + offset, 2)
+
+
 def control_loop():
     while True:
         try:
-            t1_raw = read_max6675(spi_ch1)
-            t2_raw = 20.0  # CH2 is intentionally simulated until its hardware is available.
-
-            if t1_raw is not None:
-                history_ch1.append(t1_raw)
-            if t2_raw is not None:
-                history_ch2.append(t2_raw)
-
-            valid_samples_ch1 = [temperature for temperature in history_ch1 if temperature is not None]
-            valid_samples_ch2 = [temperature for temperature in history_ch2 if temperature is not None]
-            if len(valid_samples_ch1) < SAMPLES:
-                time.sleep(POLL_INTERVAL)
-                continue
-
-            t1 = (sum(valid_samples_ch1) / len(valid_samples_ch1)) + CH1_TEMP_OFFSET
-            t2 = (sum(valid_samples_ch2) / len(valid_samples_ch2)) + CH2_TEMP_OFFSET
+            t1 = filtered_temperature("ch1", history_ch1, read_max6675(spi_ch1), CH1_TEMP_OFFSET)
+            t2 = filtered_temperature("ch2", history_ch2, read_max6675(spi_ch2), CH2_TEMP_OFFSET)
             now = datetime.now().replace(second=0, microsecond=0)
 
             with config_lock:
-                channels["ch1"]["temp"] = round(t1, 2)
-                channels["ch2"]["temp"] = round(t2, 2)
+                channels["ch1"]["temp"] = t1
+                channels["ch2"]["temp"] = t2
 
                 for channel in channels.values():
                     if manual_enabled:
